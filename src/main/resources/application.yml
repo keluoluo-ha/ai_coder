@@ -2,9 +2,14 @@
 springdoc:
   group-configs:
     - group: 'default'
-      packages-to-scan: com.yupi.yuaicodemother.controller
+      packages-to-scan: com.hhk.aicoder.controller
 # knife4j
 knife4j:
   enable: true
   setting:
     language: zh_cn
+
+spring:
+  profiles:
+    active: local
+

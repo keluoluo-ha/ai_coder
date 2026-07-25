@@ -61,6 +61,11 @@
             <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
             <version>1.1.0-beta7</version>
         </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-reactor</artifactId>
+            <version>1.1.0-beta7</version>
+        </dependency>
 
         <!-- Knife4j 4.4.0 在 Spring Boot 3.5 下需排除内置 springdoc，手动指定 2.7.0 -->
         <dependency>

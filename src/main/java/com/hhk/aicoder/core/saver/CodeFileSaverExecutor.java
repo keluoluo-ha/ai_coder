@@ -27,10 +27,10 @@ public class CodeFileSaverExecutor {
      * @param codeGenType 代码生成类型
      * @return 保存的目录
      */
-    public static File executeSaver(Object codeResult, CodeGenTypeEnum codeGenType) {
+    public static File executeSaver(Object codeResult, CodeGenTypeEnum codeGenType, Long appId) {
         return switch (codeGenType) {
-            case HTML -> htmlCodeFileSaver.saveCoder((HtmlCodeResult) codeResult);
-            case MULTI_FILE -> multiFileCodeFileSaver.saveCoder((MultiFileCodeResult) codeResult);
+            case HTML -> htmlCodeFileSaver.saveCoder((HtmlCodeResult) codeResult,appId);
+            case MULTI_FILE -> multiFileCodeFileSaver.saveCoder((MultiFileCodeResult) codeResult,appId);
             default -> throw new BusinessException(ErrorCode.SYSTEM_ERROR, "不支持的代码生成类型: " + codeGenType);
         };
     }

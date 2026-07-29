@@ -70,7 +70,7 @@ public class AiCodeGeneratorFacade {
                 yield processCodeStream(result,CodeGenTypeEnum.HTML,appId);
             }
             case MULTI_FILE ->{
-                Flux<String> result = aiCodeGeneratorService.generateHtmlCodeStream(userMessage);
+                Flux<String> result = aiCodeGeneratorService.generateMultiFileCodeStream(userMessage);
                 yield processCodeStream(result,CodeGenTypeEnum.MULTI_FILE,appId);
             }
             default -> {

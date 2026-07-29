@@ -3,6 +3,7 @@ package com.hhk.aicoder.core.saver;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
+import com.hhk.aicoder.constant.AppConstant;
 import com.hhk.aicoder.exception.BusinessException;
 import com.hhk.aicoder.exception.ErrorCode;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
@@ -14,7 +15,7 @@ public abstract class CodeFileSaverTemplate <T>{
     /**
      * 文件保存目录
      */
-    private static final String FILE_SAVE_ROOT_DIR = System.getProperty("user.dir") + "/tmp/code_output";
+    private static final String FILE_SAVE_ROOT_DIR = AppConstant.CODE_OUTPUT_ROOT_DIR;
 
 
     public final File saveCoder(T result,Long appId){

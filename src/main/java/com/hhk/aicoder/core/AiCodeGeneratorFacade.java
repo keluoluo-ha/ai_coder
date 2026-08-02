@@ -1,15 +1,23 @@
 package com.hhk.aicoder.core;
 
 
+import cn.hutool.json.JSONUtil;
 import com.hhk.aicoder.ai.AiCodeGeneratorService;
 import com.hhk.aicoder.ai.AiCodeGeneratorServiceFactory;
 import com.hhk.aicoder.ai.model.HtmlCodeResult;
 import com.hhk.aicoder.ai.model.MultiFileCodeResult;
+import com.hhk.aicoder.ai.model.message.AiResponseMessage;
+import com.hhk.aicoder.ai.model.message.ToolExecutedMessage;
+import com.hhk.aicoder.ai.model.message.ToolRequestMessage;
 import com.hhk.aicoder.core.parser.CodeParserExecutor;
 import com.hhk.aicoder.core.saver.CodeFileSaverExecutor;
 import com.hhk.aicoder.exception.BusinessException;
 import com.hhk.aicoder.exception.ErrorCode;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.service.TokenStream;
+import dev.langchain4j.service.tool.ToolExecution;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -28,6 +36,50 @@ public class AiCodeGeneratorFacade {
     private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
 
     /**
+     * 将 TokenStream 转换为 Flux<String>，并传递工具调用信息
+     *
+     * @param tokenStream TokenStream 对象
+     * @return Flux<String> 流式响应
+     */
+    private Flux<String> processTokenStream(TokenStream tokenStream) {
+        return Flux.create(sink -> {
+            tokenStream.onPartialResponse((String partialResponse) -> {
+                        AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
+                        sink.next(JSONUtil.toJsonStr(aiResponseMessage));
+                    })
+                    // ###########################################################
+                    // 关键：从 ToolExecution 中获取 ToolExecutionRequest
+                    // 100% 适配 1.12.2，不使用任何不存在的方法
+                    // ###########################################################
+                    .onToolExecuted((ToolExecution toolExecution) -> {
+
+                        // 1. 获取工具调用请求（你要保留的核心对象）
+                        ToolExecutionRequest request = toolExecution.request();
+
+                        // 2. 向前端推送工具请求（完全还原你原来的功能）
+                        ToolRequestMessage toolRequestMessage = new ToolRequestMessage(request);
+                        sink.next(JSONUtil.toJsonStr(toolRequestMessage));
+
+                        // 3. 继续推送工具执行结果（原有逻辑不变）
+                        ToolExecutedMessage toolExecutedMessage = new ToolExecutedMessage(toolExecution);
+                        sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
+                    })
+
+                    .onCompleteResponse((ChatResponse response) -> {
+                        sink.complete();
+                    })
+                    .onError((Throwable error) -> {
+                        error.printStackTrace();
+                        sink.error(error);
+                    })
+                    .start();
+        });
+    }
+
+
+
+
+    /**
      *ai生成统一入口 根据类型生成代码
      * @param userMesssage
      * @param codeGenTypeEnum
@@ -35,7 +87,7 @@ public class AiCodeGeneratorFacade {
      */
     public File generateCode(String userMesssage, CodeGenTypeEnum codeGenTypeEnum,Long appId) {
 
-        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId);
+        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId,codeGenTypeEnum);
 
         if(codeGenTypeEnum==null){
             throw new RuntimeException("codeGenTypeEnum is null");
@@ -63,7 +115,7 @@ public class AiCodeGeneratorFacade {
      * @param codeGenTypeEnum 生成类型
      */
     public Flux<String> generateAndSaveCodeStream(String userMessage, CodeGenTypeEnum codeGenTypeEnum, Long appId) {
-        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId);
+        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId,codeGenTypeEnum);
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
         }
@@ -74,7 +126,11 @@ public class AiCodeGeneratorFacade {
             }
             case MULTI_FILE ->{
                 Flux<String> result = aiCodeGeneratorService.generateMultiFileCodeStream(userMessage);
-                yield processCodeStream(result,CodeGenTypeEnum.MULTI_FILE,appId);
+                yield processCodeStream(result, CodeGenTypeEnum.MULTI_FILE, appId);
+            }
+            case VUE_PROJECT -> {
+                Flux<String> result = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
+                yield processCodeStream(result, CodeGenTypeEnum.MULTI_FILE, appId);
             }
             default -> {
                 String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();

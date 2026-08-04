@@ -9,6 +9,7 @@ import com.hhk.aicoder.ai.model.MultiFileCodeResult;
 import com.hhk.aicoder.ai.model.message.AiResponseMessage;
 import com.hhk.aicoder.ai.model.message.ToolExecutedMessage;
 import com.hhk.aicoder.ai.model.message.ToolRequestMessage;
+import com.hhk.aicoder.constant.AppConstant;
 import com.hhk.aicoder.core.parser.CodeParserExecutor;
 import com.hhk.aicoder.core.saver.CodeFileSaverExecutor;
 import com.hhk.aicoder.exception.BusinessException;
@@ -39,30 +40,20 @@ public class AiCodeGeneratorFacade {
      * @param tokenStream TokenStream 对象
      * @return Flux<String> 流式响应
      */
-    private Flux<String> processTokenStream(TokenStream tokenStream) {
+    private Flux<String> processTokenStream(TokenStream tokenStream,Long appId) {
         return Flux.create(sink -> {
             tokenStream.onPartialResponse((String partialResponse) -> {
                         AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
                         sink.next(JSONUtil.toJsonStr(aiResponseMessage));
                     })
-                    // ###########################################################
-                    // 关键：从 ToolExecution 中获取 ToolExecutionRequest
-                    // 100% 适配 1.12.2，不使用任何不存在的方法
-                    // ###########################################################
-                    .onToolExecuted((ToolExecution toolExecution) -> {
-
-                        // 1. 获取工具调用请求（你要保留的核心对象）
-                        ToolExecutionRequest request = toolExecution.request();
-
-                        // 2. 向前端推送工具请求（完全还原你原来的功能）
-                        ToolRequestMessage toolRequestMessage = new ToolRequestMessage(request);
+                    .onPartialToolExecutionRequest((index, toolExecutionRequest) -> {
+                        ToolRequestMessage toolRequestMessage = new ToolRequestMessage(toolExecutionRequest);
                         sink.next(JSONUtil.toJsonStr(toolRequestMessage));
-
-                        // 3. 继续推送工具执行结果（原有逻辑不变）
+                    })
+                    .onToolExecuted((ToolExecution toolExecution) -> {
                         ToolExecutedMessage toolExecutedMessage = new ToolExecutedMessage(toolExecution);
                         sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
                     })
-
                     .onCompleteResponse((ChatResponse response) -> {
                         sink.complete();
                     })
@@ -126,8 +117,8 @@ public class AiCodeGeneratorFacade {
                 yield processCodeStream(result, CodeGenTypeEnum.MULTI_FILE, appId);
             }
             case VUE_PROJECT -> {
-                Flux<String> result = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
-                yield processCodeStream(result, CodeGenTypeEnum.MULTI_FILE, appId);
+                TokenStream tokenStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
+                yield processTokenStream(tokenStream, appId);
             }
             default -> {
                 String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();

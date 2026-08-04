@@ -107,6 +107,7 @@ public class AiCodeGeneratorServiceFactory {
                     .chatModel(chatModel)
                     .streamingChatModel(reasoningStreamingChatModel)
                     .tools(new FileWriteTool())
+                    .chatMemoryProvider(memoryId->messageWindowChatMemory)
                     .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest,"Error: Hallucinated tool name"+toolExecutionRequest.name()))
                     .build();
             case HTML,MULTI_FILE -> AiServices.builder(AiCodeGeneratorService.class)

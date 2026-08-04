@@ -138,7 +138,7 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
     public int loadChatHitstoryToMemory(Long appId, MessageWindowChatMemory chatMemory,int maxcount) {
         try {
             //参数校验
-            ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID不能为空");
+            ThrowUtils.throwIf(appId == null || appId < 0, ErrorCode.PARAMS_ERROR, "应用ID不能为空");
             //直接构造查询条件，是1不是0 用于排除最新的用户消息
             QueryWrapper queryWrapper = QueryWrapper.create()
                     .eq("appId", appId)

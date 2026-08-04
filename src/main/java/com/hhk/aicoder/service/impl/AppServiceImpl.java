@@ -18,6 +18,7 @@ import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
 import com.hhk.aicoder.model.vo.AppVO;
 import com.hhk.aicoder.model.vo.UserVO;
 import com.hhk.aicoder.service.ChatHistoryService;
+import com.hhk.aicoder.service.ScreenshotService;
 import com.hhk.aicoder.service.UserService;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
@@ -26,7 +27,6 @@ import com.hhk.aicoder.mapper.AppMapper;
 import com.hhk.aicoder.service.AppService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
@@ -62,6 +62,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     private StreamHandlerExecutor streamHandlerExecutor;
     @Resource
     private VueProjectBuilder vueProjectBuilder;
+    @Resource
+    private ScreenshotService screenshotService;
 
 
     @Override
@@ -216,7 +218,27 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         boolean updateResult = this.updateById(updateApp);
         ThrowUtils.throwIf(!updateResult, ErrorCode.OPERATION_ERROR, "更新应用部署信息失败");
         // 9. 返回可访问的 URL
-        return String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, deployKey);
+        String deployUrl = String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, deployKey);
+        //10. 异步生成封面截图并且更新应用界面
+        generateAppScreenShotAsync(appId,deployUrl);
+        return deployUrl;
+    }
+
+    private void generateAppScreenShotAsync(Long appId, String deployUrl) {
+        Thread.startVirtualThread(()->{
+            //调用截图服务生成截图上传
+            String coverPath = screenshotService.generateAndUploadScreenshot(deployUrl);
+            //更新应用页面字段
+            App app = new App();
+            app.setId(appId);
+            app.setCover(coverPath);
+            boolean res = this.updateById(app);
+            ThrowUtils.throwIf(!res, ErrorCode.OPERATION_ERROR, "更新应用封面失败");
+
+
+        });
+
+
     }
 
 

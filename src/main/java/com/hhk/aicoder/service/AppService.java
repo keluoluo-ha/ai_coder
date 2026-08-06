@@ -1,5 +1,6 @@
 package com.hhk.aicoder.service;
 
+import com.hhk.aicoder.model.dto.app.AppAddRequest;
 import com.hhk.aicoder.model.dto.app.AppQueryRequest;
 import com.hhk.aicoder.model.entity.User;
 import com.hhk.aicoder.model.vo.AppVO;
@@ -17,6 +18,10 @@ import java.util.List;
  * @author hhk
  */
 public interface AppService extends IService<App> {
+
+
+
+
     AppVO getAppVO(App app);
 
     QueryWrapper getQueryWrapper(AppQueryRequest appQueryRequest);
@@ -47,4 +52,12 @@ public interface AppService extends IService<App> {
      * @return
      */
     boolean removeById(Serializable id);
+
+    /**
+     * 创建应用
+     * @param appAddRequest
+     * @param loginUser
+     * @return
+     */
+    Long createApp(AppAddRequest appAddRequest,User loginUser);
 }

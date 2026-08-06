@@ -3,6 +3,7 @@ package com.hhk.aicoder.controller;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import com.hhk.aicoder.ai.AiCodeGenTypeRoutingService;
 import com.hhk.aicoder.annotation.AuthCheck;
 import com.hhk.aicoder.common.BaseResponse;
 import com.hhk.aicoder.common.DeleteRequest;
@@ -38,6 +39,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
+import static org.bouncycastle.its.asn1.EndEntityType.app;
+
 /**
  * 应用 控制层。
  *
@@ -56,6 +59,8 @@ public class AppController {
     @Resource
     private ProjectDownloadService projectDownloadService;
 
+    @Resource
+    private AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService;
 
     /**
      * 创建应用
@@ -72,21 +77,8 @@ public class AppController {
         ThrowUtils.throwIf(StrUtil.isBlank(initPrompt), ErrorCode.PARAMS_ERROR, "初始化 prompt 不能为空");
         // 获取当前登录用户
         User loginUser = userService.getLoginUser(request);
-        // 构造入库对象
-        App app = new App();
-        BeanUtil.copyProperties(appAddRequest, app);
-        // 5位Long，范围 10000‑99999
-        long appId = 10000L + (long) (Math.random() * 90000);
-        app.setId(appId);
-        app.setUserId(loginUser.getId());
-        // 应用名称暂时为 initPrompt 前 12 位
-        app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
-        // 暂时设置为多文件生成
-        app.setCodeGenType(CodeGenTypeEnum.MULTI_FILE.getValue());
-        // 插入数据库
-        boolean result = appService.save(app);
-        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
-        return ResultUtils.success(app.getId());
+        Long appId = appService.createApp(appAddRequest, loginUser);
+        return ResultUtils.success(appId);
     }
 
     /**

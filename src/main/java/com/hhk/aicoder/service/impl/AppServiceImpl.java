@@ -5,6 +5,8 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
+import com.hhk.aicoder.ai.AiCodeGenTypeRoutingService;
+import com.hhk.aicoder.common.ResultUtils;
 import com.hhk.aicoder.constant.AppConstant;
 import com.hhk.aicoder.core.AiCodeGeneratorFacade;
 import com.hhk.aicoder.core.builder.VueProjectBuilder;
@@ -12,6 +14,7 @@ import com.hhk.aicoder.core.handler.StreamHandlerExecutor;
 import com.hhk.aicoder.exception.BusinessException;
 import com.hhk.aicoder.exception.ErrorCode;
 import com.hhk.aicoder.exception.ThrowUtils;
+import com.hhk.aicoder.model.dto.app.AppAddRequest;
 import com.hhk.aicoder.model.dto.app.AppQueryRequest;
 import com.hhk.aicoder.model.entity.User;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
@@ -64,7 +67,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     private VueProjectBuilder vueProjectBuilder;
     @Resource
     private ScreenshotService screenshotService;
-
+    @Resource
+    private AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService;
 
     @Override
     public AppVO getAppVO(App app) {
@@ -254,6 +258,27 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         }
         return super.removeById(id);
 
+    }
+
+    @Override
+    public Long createApp(AppAddRequest appAddRequest, User loginUser) {
+        String initPrompt = appAddRequest.getInitPrompt();
+        // 构造入库对象
+        App app = new App();
+        BeanUtil.copyProperties(appAddRequest, app);
+        // 5位Long，范围 10000‑99999
+        long appId = 10000L + (long) (Math.random() * 90000);
+        app.setId(appId);
+        app.setUserId(loginUser.getId());
+        // 应用名称暂时为 initPrompt 前 12 位
+        app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
+        // 暂时设置为多文件生成
+        CodeGenTypeEnum codeGenTypeEnum = aiCodeGenTypeRoutingService.routeCodeGenType(appAddRequest.getInitPrompt());
+        app.setCodeGenType(codeGenTypeEnum.getValue());
+        // 插入数据库
+        boolean result = this.save(app);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        return app.getId();
     }
 
 }

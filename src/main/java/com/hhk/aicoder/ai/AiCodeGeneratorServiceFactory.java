@@ -3,7 +3,7 @@ package com.hhk.aicoder.ai;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.hhk.aicoder.ai.tools.FileWriteTool;
+import com.hhk.aicoder.ai.tools.*;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
 import com.hhk.aicoder.service.ChatHistoryService;
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
@@ -41,6 +41,9 @@ public class AiCodeGeneratorServiceFactory {
 
     @Resource
     private StreamingChatModel reasoningStreamingChatModel;
+
+    @Resource
+    private ToolManager toolManager;
 
     private final Cache<String,AiCodeGeneratorService> serviceCache= Caffeine.newBuilder()
             .maximumSize(1000)
@@ -106,7 +109,7 @@ public class AiCodeGeneratorServiceFactory {
             case VUE_PROJECT -> AiServices.builder(AiCodeGeneratorService.class)
                     .chatModel(chatModel)
                     .streamingChatModel(reasoningStreamingChatModel)
-                    .tools(new FileWriteTool())
+                    .tools(toolManager.getAllTool())
                     .chatMemoryProvider(memoryId->messageWindowChatMemory)
                     .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest,"Error: Hallucinated tool name"+toolExecutionRequest.name()))
                     .build();

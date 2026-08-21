@@ -1,6 +1,7 @@
 package com.hhk.aicoder.langgraph4j.state;
 
 import com.hhk.aicoder.langgraph4j.model.ImageResource;
+import com.hhk.aicoder.langgraph4j.model.QualityResult;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -72,6 +73,10 @@ public class WorkflowContext implements Serializable {
      */
     private String errorMessage;
 
+    /**
+     * 质量检查结果
+     */
+    private QualityResult qualityResult;
 
 
 

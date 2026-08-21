@@ -2,6 +2,7 @@ package com.hhk.aicoder.ai.tools;
 
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
@@ -18,7 +19,7 @@ public class ToolManager {
     /**
      * 自动注入所有工具
      */
-    @Resource
+    @Autowired
     private BaseTool[] tools;
 
     /**

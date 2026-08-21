@@ -1,10 +1,12 @@
 package com.hhk.aicoder.ai.tools;
 
 import cn.hutool.json.JSONObject;
+import org.springframework.context.annotation.Configuration;
 
 /**
  * 工具基类
  * 定义所有工具的通用接口
+ * @author hhk
  */
 public abstract class BaseTool {
 

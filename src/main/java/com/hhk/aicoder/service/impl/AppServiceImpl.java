@@ -6,6 +6,7 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import com.hhk.aicoder.ai.AiCodeGenTypeRoutingService;
+import com.hhk.aicoder.ai.AiCodeGenTypeRoutingServiceFactory;
 import com.hhk.aicoder.common.ResultUtils;
 import com.hhk.aicoder.constant.AppConstant;
 import com.hhk.aicoder.core.AiCodeGeneratorFacade;
@@ -53,12 +54,13 @@ import static cn.hutool.poi.excel.sax.ElementName.c;
 @Slf4j
 public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppService{
 
+
+    @Resource
+    private AiCodeGenTypeRoutingServiceFactory aiCodeGenTypeRoutingServiceFactory;
     @Resource
     private UserService userService;
-
     @Resource
     private AiCodeGeneratorFacade aiCodeGeneratorFacade;
-
     @Resource
     private ChatHistoryService chatHistoryService;
     @Resource
@@ -67,8 +69,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     private VueProjectBuilder vueProjectBuilder;
     @Resource
     private ScreenshotService screenshotService;
-    @Resource
-    private AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService;
+
 
     @Override
     public AppVO getAppVO(App app) {
@@ -272,8 +273,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         app.setUserId(loginUser.getId());
         // 应用名称暂时为 initPrompt 前 12 位
         app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
-        // 暂时设置为多文件生成
-        CodeGenTypeEnum codeGenTypeEnum = aiCodeGenTypeRoutingService.routeCodeGenType(appAddRequest.getInitPrompt());
+        //类型由路由ai决定
+        AiCodeGenTypeRoutingService codeGenTypeRoutingService = aiCodeGenTypeRoutingServiceFactory.aiCodeGenTypeRoutingService();
+        CodeGenTypeEnum codeGenTypeEnum = codeGenTypeRoutingService.routeCodeGenType(initPrompt);
         app.setCodeGenType(codeGenTypeEnum.getValue());
         // 插入数据库
         boolean result = this.save(app);

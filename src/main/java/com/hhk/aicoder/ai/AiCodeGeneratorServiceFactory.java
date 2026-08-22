@@ -6,6 +6,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.hhk.aicoder.ai.tools.*;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
 import com.hhk.aicoder.service.ChatHistoryService;
+import com.hhk.aicoder.utils.SpringContextUtil;
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
@@ -27,8 +28,9 @@ import java.time.Duration;
 @Slf4j
 public class AiCodeGeneratorServiceFactory {
 
-    @Resource
+    @Resource(name = "openAiChatModel")
     private ChatModel chatModel;
+
 
     @Resource
     private StreamingChatModel openAiStreamingChatModel;
@@ -106,18 +108,22 @@ public class AiCodeGeneratorServiceFactory {
         chatHistoryService.loadChatHitstoryToMemory(appId,messageWindowChatMemory,20);
         //根据类型切换大模型
         return switch (codeGenTypeEnum){
-            case VUE_PROJECT -> AiServices.builder(AiCodeGeneratorService.class)
-                    .chatModel(chatModel)
-                    .streamingChatModel(reasoningStreamingChatModel)
-                    .tools(toolManager.getAllTool())
-                    .chatMemoryProvider(memoryId->messageWindowChatMemory)
-                    .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest,"Error: Hallucinated tool name"+toolExecutionRequest.name()))
-                    .build();
-            case HTML,MULTI_FILE -> AiServices.builder(AiCodeGeneratorService.class)
-                    .chatModel(chatModel)
-                    .streamingChatModel(openAiStreamingChatModel)
-                    .chatMemory(messageWindowChatMemory)
-                    .build();
+            case VUE_PROJECT -> {
+               StreamingChatModel reasoningStreamChatModel= SpringContextUtil.getBean("reasoningStreamChatModel",StreamingChatModel.class);
+               yield AiServices.builder(AiCodeGeneratorService.class)
+                       .streamingChatModel(reasoningStreamingChatModel)
+                       .chatMemoryProvider(memoryId->messageWindowChatMemory)
+                       .tools(toolManager.getAllTool())
+                       .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest,"Error:there is no tool called"+toolExecutionRequest))
+                       .build();
+            }
+            case HTML,MULTI_FILE -> {
+                StreamingChatModel openAistreamChatModel= SpringContextUtil.getBean("streamChatModelPrototype",StreamingChatModel.class);
+                yield AiServices.builder(AiCodeGeneratorService.class)
+                        .streamingChatModel(openAistreamChatModel)
+                        .chatMemoryProvider(memoryId->messageWindowChatMemory)
+                        .build();
+            }
             default -> throw new IllegalArgumentException("unsupported codeGenTypeEnum:"+codeGenTypeEnum);
         };
 

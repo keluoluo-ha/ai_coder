@@ -20,7 +20,6 @@ public class RouterNode {
             log.info("执行节点: 智能路由");
 
             CodeGenTypeEnum generationType;
-            // TODO: 实际执行智能路由逻辑
             try {
                 // 获取AI路由服务工厂并创建新的路由服务实例
                 AiCodeGenTypeRoutingServiceFactory factory = SpringContextUtil.getBean(AiCodeGenTypeRoutingServiceFactory.class);

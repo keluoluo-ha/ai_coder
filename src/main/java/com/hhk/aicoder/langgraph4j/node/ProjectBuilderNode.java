@@ -23,7 +23,6 @@ public class ProjectBuilderNode {
 
             // 获取必要的参数
             String generatedCodeDir = context.getGeneratedCodeDir();
-            CodeGenTypeEnum generationType = context.getGenerationType();
             String buildResultDir;
                 try {
                     VueProjectBuilder vueBuilder = SpringContextUtil.getBean(VueProjectBuilder.class);

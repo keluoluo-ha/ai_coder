@@ -1,12 +1,11 @@
 package com.hhk.aicoder.langgraph4j.node;
 
 import com.hhk.aicoder.langgraph4j.ai.ImageCollectionPlanService;
-import com.hhk.aicoder.langgraph4j.ai.ImageCollectionService;
-
 import com.hhk.aicoder.langgraph4j.model.ImageCollectionPlan;
 import com.hhk.aicoder.langgraph4j.model.ImageResource;
 import com.hhk.aicoder.langgraph4j.state.WorkflowContext;
 import com.hhk.aicoder.langgraph4j.tools.ImageSearchTool;
+import com.hhk.aicoder.langgraph4j.tools.LogoGeneratorTool;
 import com.hhk.aicoder.langgraph4j.tools.MermaidDiagramTool;
 import com.hhk.aicoder.langgraph4j.tools.UndrawIllustrationTool;
 import com.hhk.aicoder.utils.SpringContextUtil;
@@ -67,10 +66,10 @@ public class ImageCollectorNode {
                 }
                 //并发执行logo生成
                 if (plan.getLogoTasks() != null) {
-                    ImageSearchTool imageSearchTool = SpringContextUtil.getBean(ImageSearchTool.class);
+                    LogoGeneratorTool logoGeneratorTool = SpringContextUtil.getBean(LogoGeneratorTool.class);
                     for (ImageCollectionPlan.ImageSearchTask task:plan.getContentImageTasks()){
                         futures.add(CompletableFuture.supplyAsync(()->
-                                imageSearchTool.searchContentImages(task.query())
+                                logoGeneratorTool.generateLogos(task.query())
                         ));
                     }
                 }

@@ -17,6 +17,8 @@ import com.hhk.aicoder.model.dto.app.*;
 import com.hhk.aicoder.model.entity.User;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
 import com.hhk.aicoder.model.vo.AppVO;
+import com.hhk.aicoder.ratelimiter.annotation.RateLimit;
+import com.hhk.aicoder.ratelimiter.enums.RateLimitType;
 import com.hhk.aicoder.service.ProjectDownloadService;
 import com.hhk.aicoder.service.UserService;
 import com.mybatisflex.core.paginate.Page;
@@ -340,7 +342,10 @@ public class AppController {
      * @param request 请求对象
      * @return 生成结果流
      */
+    //对接 AI 大模型，第三方 SDK 返回的本身就是 Flux 数据流
+
     @GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
     public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam Long appId,
                                       @RequestParam String message,
                                       HttpServletRequest request) {

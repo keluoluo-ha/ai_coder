@@ -10,6 +10,7 @@ import com.hhk.aicoder.ai.model.message.AiResponseMessage;
 import com.hhk.aicoder.ai.model.message.ToolExecutedMessage;
 import com.hhk.aicoder.ai.model.message.ToolRequestMessage;
 import com.hhk.aicoder.constant.AppConstant;
+import com.hhk.aicoder.core.builder.VueProjectBuilder;
 import com.hhk.aicoder.core.parser.CodeParserExecutor;
 import com.hhk.aicoder.core.saver.CodeFileSaverExecutor;
 import com.hhk.aicoder.exception.BusinessException;
@@ -36,10 +37,11 @@ public class AiCodeGeneratorFacade {
 
     /**
      * 将 TokenStream 转换为 Flux<String>，并传递工具调用信息
-     *
      * @param tokenStream TokenStream 对象
      * @return Flux<String> 流式响应
      */
+     //Flux：管内存里数据流怎么跑（通用，不只用于网页推送）
+    //SseEmitter：管怎么把数据通过 HTTP 长连接发给浏览器（专门做 SSE 网页推送）
     private Flux<String> processTokenStream(TokenStream tokenStream,Long appId) {
         return Flux.create(sink -> {
             tokenStream.onPartialResponse((String partialResponse) -> {
@@ -55,8 +57,13 @@ public class AiCodeGeneratorFacade {
                         sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
                     })
                     .onCompleteResponse((ChatResponse response) -> {
+                        // 执行 Vue 项目构建（同步执行，确保预览时项目已就绪）
+                        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + "vue_project_" + appId;
+                        VueProjectBuilder vueProjectBuilder = new VueProjectBuilder();
+                        vueProjectBuilder.buildProject(projectPath);
                         sink.complete();
                     })
+
                     .onError((Throwable error) -> {
                         error.printStackTrace();
                         sink.error(error);

@@ -29,7 +29,7 @@ public class ImageCollectorNode {
             // 实际执行图片收集逻辑
             String originalPrompt = context.getOriginalPrompt();
             ArrayList<ImageResource> collectedImages = new ArrayList<>();
-            String imageListStr="";
+            StringBuilder imageListStrBuilder = new StringBuilder();
             try {
                 //1.获取图片收集计划
                 ImageCollectionPlanService planService = SpringContextUtil.getBean(ImageCollectionPlanService.class);
@@ -67,9 +67,9 @@ public class ImageCollectorNode {
                 //并发执行logo生成
                 if (plan.getLogoTasks() != null) {
                     LogoGeneratorTool logoGeneratorTool = SpringContextUtil.getBean(LogoGeneratorTool.class);
-                    for (ImageCollectionPlan.ImageSearchTask task:plan.getContentImageTasks()){
-                        futures.add(CompletableFuture.supplyAsync(()->
-                                logoGeneratorTool.generateLogos(task.query())
+                    for (ImageCollectionPlan.LogoTask task:plan.getLogoTasks()){
+                        futures.add(CompletableFuture.supplyAsync(() ->
+                                logoGeneratorTool.generateLogos(task.description())
                         ));
                     }
                 }
@@ -79,6 +79,14 @@ public class ImageCollectorNode {
                     List<ImageResource> imageResources = future.get();
                     if(imageResources!=null){
                         collectedImages.addAll(imageResources);
+                        for (ImageResource imageResource : imageResources) {
+                            imageListStrBuilder.append(imageResource.getCategory().getValue())
+                                    .append(",\"")
+                                    .append(imageResource.getDescription())
+                                    .append("\",")
+                                    .append(imageResource.getUrl())
+                                    .append("\n");
+                        }
                     }
                     log.info("并发图片收集完成");
                 }
@@ -88,7 +96,8 @@ public class ImageCollectorNode {
 
             // 更新状态
             context.setCurrentStep("图片收集");
-            context.setImageListStr(imageListStr);
+            context.setImageList(collectedImages);
+            context.setImageListStr(imageListStrBuilder.toString());
             return WorkflowContext.saveContext(context);
         });
     }

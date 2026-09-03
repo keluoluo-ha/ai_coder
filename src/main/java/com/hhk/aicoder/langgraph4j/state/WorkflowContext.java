@@ -59,6 +59,11 @@ public class WorkflowContext implements Serializable {
     private CodeGenTypeEnum generationType;
 
     /**
+     * 应用ID
+     */
+    private Long appId;
+
+    /**
      * 生成的代码目录
      */
     private String generatedCodeDir;

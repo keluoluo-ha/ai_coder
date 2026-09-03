@@ -20,8 +20,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
 
-import static com.mybatisflex.core.constant.SqlConsts.END;
-import static opennlp.tools.parser.AbstractBottomUpParser.START;
+import static org.bsc.langgraph4j.StateGraph.END;
+import static org.bsc.langgraph4j.StateGraph.START;
 import static org.bsc.langgraph4j.action.AsyncEdgeAction.edge_async;
 
 @Slf4j
@@ -74,12 +74,13 @@ public class CodeGenWorkflow {
     /**
      * 执行工作流
      */
-    public WorkflowContext executeWorkflow(String originalPrompt) {
+    public WorkflowContext executeWorkflow(String originalPrompt, Long appId) {
         CompiledGraph<MessagesState<String>> workflow = createWorkflow();
 
         // 初始化 WorkflowContext
         WorkflowContext initialContext = WorkflowContext.builder()
                 .originalPrompt(originalPrompt)
+                .appId(appId)
                 .currentStep("初始化")
                 .build();
 
@@ -119,18 +120,20 @@ public class CodeGenWorkflow {
     /**
      * 执行工作流（Flux 流式输出版本）
      */
-    public Flux<String> executeWorkflowWithFlux(String originalPrompt) {
+    public Flux<String> executeWorkflowWithFlux(String originalPrompt, Long appId) {
         return Flux.create(sink -> {
             Thread.startVirtualThread(() -> {
                 try {
                     CompiledGraph<MessagesState<String>> workflow = createWorkflow();
                     WorkflowContext initialContext = WorkflowContext.builder()
                             .originalPrompt(originalPrompt)
+                            .appId(appId)
                             .currentStep("初始化")
                             .build();
                     sink.next(formatSseEvent("workflow_start", Map.of(
                             "message", "开始执行代码生成工作流",
-                            "originalPrompt", originalPrompt
+                            "originalPrompt", originalPrompt,
+                            "appId", appId
                     )));
                     GraphRepresentation graph = workflow.getGraph(GraphRepresentation.Type.MERMAID);
                     log.info("工作流图:\n{}", graph.content());

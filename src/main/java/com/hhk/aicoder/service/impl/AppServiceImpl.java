@@ -9,9 +9,9 @@ import com.hhk.aicoder.ai.AiCodeGenTypeRoutingService;
 import com.hhk.aicoder.ai.AiCodeGenTypeRoutingServiceFactory;
 import com.hhk.aicoder.common.ResultUtils;
 import com.hhk.aicoder.constant.AppConstant;
-import com.hhk.aicoder.core.AiCodeGeneratorFacade;
 import com.hhk.aicoder.core.builder.VueProjectBuilder;
 import com.hhk.aicoder.core.handler.StreamHandlerExecutor;
+import com.hhk.aicoder.langgraph4j.CodeGenWorkflow;
 import com.hhk.aicoder.exception.BusinessException;
 import com.hhk.aicoder.exception.ErrorCode;
 import com.hhk.aicoder.exception.ThrowUtils;
@@ -62,8 +62,6 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     private AiCodeGenTypeRoutingServiceFactory aiCodeGenTypeRoutingServiceFactory;
     @Resource
     private UserService userService;
-    @Resource
-    private AiCodeGeneratorFacade aiCodeGeneratorFacade;
     @Resource
     private ChatHistoryService chatHistoryService;
     @Resource
@@ -167,8 +165,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
 //        MonitorContextHolder.setContext(MonitorContext.builder().userId(loginUser.getId().toString())
 //                .appId(appId.toString())
 //                .build());
-        //调用代码生成器生成代码
-        Flux<String> contentflux = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenTypeEnum, appId);
+        // LangGraph：搜图 + 提示词增强后，再按应用已有类型流式生成
+        Flux<String> contentflux = new CodeGenWorkflow().executeWorkflowWithFlux(message, appId);
         //保存代码保存ai对话历史记录
         return streamHandlerExecutor.doExecute(contentflux, chatHistoryService, appId, loginUser,codeGenTypeEnum).doFinally(signalType ->
         { MonitorContextHolder.clearContext();}
@@ -239,17 +237,22 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     }
 
     private void generateAppScreenShotAsync(Long appId, String deployUrl) {
-        Thread.startVirtualThread(()->{
-            //调用截图服务生成截图上传
-            String coverPath = screenshotService.generateAndUploadScreenshot(deployUrl);
-            //更新应用页面字段
-            App app = new App();
-            app.setId(appId);
-            app.setCover(coverPath);
-            boolean res = this.updateById(app);
-            ThrowUtils.throwIf(!res, ErrorCode.OPERATION_ERROR, "更新应用封面失败");
-
-
+        Thread.startVirtualThread(() -> {
+            try {
+                log.info("开始生成应用截图，appId={}, deployUrl={}", appId, deployUrl);
+                // 调用截图服务生成截图上传
+                String coverPath = screenshotService.generateAndUploadScreenshot(deployUrl);
+                log.info("截图生成完成，appId={}, coverPath={}", appId, coverPath);
+                // 更新应用页面字段
+                App app = new App();
+                app.setId(appId);
+                app.setCover(coverPath);
+                boolean res = this.updateById(app);
+                ThrowUtils.throwIf(!res, ErrorCode.OPERATION_ERROR, "更新应用封面失败");
+                log.info("应用封面更新成功，appId={}", appId);
+            } catch (Exception e) {
+                log.error("应用截图生成或封面更新失败，appId={}, deployUrl={}, error={}", appId, deployUrl, e.getMessage(), e);
+            }
         });
 
 

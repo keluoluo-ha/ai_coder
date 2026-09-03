@@ -28,8 +28,9 @@ public class PromptEnhancerNode {
             enhancedPromptBuilder.append(originalPrompt);
             // 如果有图片资源，则添加图片信息
             if (CollUtil.isNotEmpty(imageList) || StrUtil.isNotBlank(imageListStr)) {
-                enhancedPromptBuilder.append("\n\n## 可用素材资源\n");
-                enhancedPromptBuilder.append("请在生成网站使用以下图片资源，将这些图片合理地嵌入到网站的相应位置中。\n");
+                enhancedPromptBuilder.append("\n\n## 必须使用的图片资源\n");
+                enhancedPromptBuilder.append("以下图片资源已经由系统收集完成，生成页面时必须优先使用这些真实图片，且必须直接出现在最终页面中；不要再使用 picsum 或其他占位图替代。\n");
+                enhancedPromptBuilder.append("页面中的首屏 Banner、内容卡片、图集、轮播图、封面图等位置，必须至少使用其中一部分图片 URL。\n");
                 if (CollUtil.isNotEmpty(imageList)) {
                     for (ImageResource image : imageList) {
                         enhancedPromptBuilder.append("- ")

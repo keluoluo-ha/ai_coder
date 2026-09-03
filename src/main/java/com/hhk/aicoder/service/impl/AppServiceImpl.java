@@ -18,9 +18,12 @@ import com.hhk.aicoder.exception.ThrowUtils;
 import com.hhk.aicoder.model.dto.app.AppAddRequest;
 import com.hhk.aicoder.model.dto.app.AppQueryRequest;
 import com.hhk.aicoder.model.entity.User;
+import com.hhk.aicoder.model.enums.ChatHistoryMessageTypeEnum;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
 import com.hhk.aicoder.model.vo.AppVO;
 import com.hhk.aicoder.model.vo.UserVO;
+import com.hhk.aicoder.monitor.MonitorContext;
+import com.hhk.aicoder.monitor.MonitorContextHolder;
 import com.hhk.aicoder.service.ChatHistoryService;
 import com.hhk.aicoder.service.ScreenshotService;
 import com.hhk.aicoder.service.UserService;
@@ -159,11 +162,17 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         String appCodeGenType = app.getCodeGenType();
         if(codeGenType==null)
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "代码生成类型错误");
-        chatHistoryService.addChatMessage(appId,message,appCodeGenType,loginUser.getId());
+        chatHistoryService.addChatMessage(appId,message, ChatHistoryMessageTypeEnum.USER.getValue(),loginUser.getId());
+        //设置监控上下文
+//        MonitorContextHolder.setContext(MonitorContext.builder().userId(loginUser.getId().toString())
+//                .appId(appId.toString())
+//                .build());
         //调用代码生成器生成代码
         Flux<String> contentflux = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenTypeEnum, appId);
         //保存代码保存ai对话历史记录
-        return streamHandlerExecutor.doExecute(contentflux, chatHistoryService, appId, loginUser,codeGenTypeEnum);
+        return streamHandlerExecutor.doExecute(contentflux, chatHistoryService, appId, loginUser,codeGenTypeEnum).doFinally(signalType ->
+        { MonitorContextHolder.clearContext();}
+        );
 
     }
 

@@ -21,7 +21,6 @@ import java.time.Duration;
 import java.util.UUID;
 
 @Slf4j
-@Configuration
 public class WebScreenshotUtils {
 
     private static final WebDriver webDriver;

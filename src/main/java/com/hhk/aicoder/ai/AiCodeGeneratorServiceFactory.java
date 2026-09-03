@@ -4,14 +4,12 @@ package com.hhk.aicoder.ai;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.hhk.aicoder.ai.guardrial.PromptSafetyInputGuardrail;
-import com.hhk.aicoder.ai.guardrial.RetryOutputGuardrail;
 import com.hhk.aicoder.ai.tools.*;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
 import com.hhk.aicoder.service.ChatHistoryService;
 import com.hhk.aicoder.utils.SpringContextUtil;
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
-import dev.langchain4j.guardrail.config.OutputGuardrailsConfig;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 
@@ -107,33 +105,27 @@ public class AiCodeGeneratorServiceFactory {
                 .chatMemoryStore(redisChatMemoryStore)
                 .maxMessages(20)
                 .build();
-        OutputGuardrailsConfig outputGuardrailsConfig = OutputGuardrailsConfig.builder()
-                .maxRetries(3)
-                .build();
-
         //加载历史对话
         chatHistoryService.loadChatHitstoryToMemory(appId,messageWindowChatMemory,20);
         //根据类型切换大模型
+        // 注意：流式服务不要配置 outputGuardrails。
+        // LangChain4j 会把所有 token 先缓冲，校验完再一次性吐出，前端就会「思考很久 → 突然全文出现」。
         return switch (codeGenTypeEnum){
             case VUE_PROJECT -> {
-               StreamingChatModel reasoningStreamChatModel= SpringContextUtil.getBean("reasoningStreamChatModel",StreamingChatModel.class);
+               StreamingChatModel reasoningStreamChatModel= SpringContextUtil.getBean("reasoningStreamingChatModel",StreamingChatModel.class);
                yield AiServices.builder(AiCodeGeneratorService.class)
                        .streamingChatModel(reasoningStreamingChatModel)
                        .chatMemoryProvider(memoryId->messageWindowChatMemory)
                        .tools(toolManager.getAllTool())
                        .inputGuardrails(new PromptSafetyInputGuardrail())
-                       .outputGuardrails(new RetryOutputGuardrail())
-                       .outputGuardrailsConfig(outputGuardrailsConfig)
                        .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest,"Error:there is no tool called"+toolExecutionRequest))
                        .build();
             }
             case HTML,MULTI_FILE -> {
-                StreamingChatModel openAistreamChatModel= SpringContextUtil.getBean("streamChatModelPrototype",StreamingChatModel.class);
+                StreamingChatModel openAistreamChatModel= SpringContextUtil.getBean("streamingChatModelPrototype",StreamingChatModel.class);
                 yield AiServices.builder(AiCodeGeneratorService.class)
                         .streamingChatModel(openAistreamChatModel)
                         .inputGuardrails(new PromptSafetyInputGuardrail())
-                        .outputGuardrails(new RetryOutputGuardrail())
-                        .outputGuardrailsConfig(outputGuardrailsConfig)
                         .chatMemoryProvider(memoryId->messageWindowChatMemory)
                         .build();
             }

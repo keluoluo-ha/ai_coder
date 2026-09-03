@@ -122,8 +122,8 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
         ThrowUtils.throwIf(app == null, ErrorCode.PARAMS_ERROR, "应用不存在");
         ThrowUtils.throwIf(!app.getUserId().equals(loginUser.getId()), ErrorCode.NO_AUTH_ERROR, "没有权限访问该应用");
         boolean isAdmin = UserConstant.ADMIN_ROLE.equals(loginUser.getUserRole());
-        if(!isAdmin){
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR,"没有权限访问该应用");
+        if (!isAdmin && !app.getUserId().equals(loginUser.getId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "没有权限访问该应用");
         }
         //查询
         ChatHistoryQueryRequest chatHistoryQueryRequest = new ChatHistoryQueryRequest();
@@ -162,17 +162,15 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
                     chatMemory.add(AiMessage.from(history.getMessage()));
                     loadedCount++;
                 }
-                log.info("成功加载了:{}条历史对话,appId:{}",loadedCount,appId);
-                return loadedCount;
+
             }
+            log.info("成功加载了:{}条历史对话,appId:{}",loadedCount,appId);
+            return loadedCount;
         } catch (Exception e) {
             log.error("加载历史对话失败,appId:{}",appId,e);
             throw new RuntimeException(e);
         }
 
-
-        return 0;
-        
     }
 
 

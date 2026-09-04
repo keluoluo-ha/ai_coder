@@ -83,9 +83,6 @@ public class WorkflowContext implements Serializable {
      */
     private QualityResult qualityResult;
 
-
-
-
     @Serial
     private static final long serialVersionUID = 1L;
 

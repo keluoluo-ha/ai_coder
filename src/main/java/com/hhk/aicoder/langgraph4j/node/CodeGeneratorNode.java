@@ -11,15 +11,14 @@ import org.bsc.langgraph4j.action.AsyncNodeAction;
 import org.bsc.langgraph4j.prebuilt.MessagesState;
 import reactor.core.publisher.Flux;
 
-import java.time.Duration;
-
-import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 public class CodeGeneratorNode {
 
     public static AsyncNodeAction<MessagesState<String>> create() {
-        return node_async(state -> {
+        return state -> {
             WorkflowContext context = WorkflowContext.getContext(state);
             log.info("执行节点: 代码生成");
             String userMessage = buildUserMessage(context);
@@ -32,18 +31,26 @@ public class CodeGeneratorNode {
                 throw new com.hhk.aicoder.exception.BusinessException(com.hhk.aicoder.exception.ErrorCode.PARAMS_ERROR, "appId 不能为空");
             }
             // 调用流式代码生成
+            // 注意：不把 token 转发到 SSE 下游 —— 聊天气泡只显示工作流步骤状态，
+            // 原始 AI 文本（规划段、代码、JSON 数据等）会刷屏且对用户无价值。
             Flux<String> codeStream = codeGeneratorFacade.generateAndSaveCodeStream(userMessage, generationType, appId);
-            // 同步等待流式输出完成
-            codeStream.blockLast(Duration.ofMinutes(10)); // 最多等待 10 分钟
-            // 根据类型设置生成目录
-            String generatedCodeDir = String.format("%s/%s_%s", AppConstant.CODE_OUTPUT_ROOT_DIR, generationType.getValue(), appId);
-            log.info("AI 代码生成完成，生成目录: {}", generatedCodeDir);
-
-            // 更新状态
-            context.setCurrentStep("代码生成");
-            context.setGeneratedCodeDir(generatedCodeDir);
-            return WorkflowContext.saveContext(context);
-        });
+            // 非阻塞异步：订阅生成流，流完成/失败时再 complete 节点 Future，
+            // 不用 blockLast 阻塞等待，也没有固定超时，避免把正常的长耗时生成误杀。
+            CompletableFuture<Map<String, Object>> future = new CompletableFuture<>();
+            codeStream
+                    .doOnComplete(() -> {
+                        // 根据类型设置生成目录
+                        String generatedCodeDir = String.format("%s/%s_%s", AppConstant.CODE_OUTPUT_ROOT_DIR, generationType.getValue(), appId);
+                        log.info("AI 代码生成完成，生成目录: {}", generatedCodeDir);
+                        // 更新状态
+                        context.setCurrentStep("代码生成");
+                        context.setGeneratedCodeDir(generatedCodeDir);
+                        future.complete(WorkflowContext.saveContext(context));
+                    })
+                    .doOnError(future::completeExceptionally)
+                    .subscribe();
+            return future;
+        };
     }
     /**
      * 构造用户消息，如果存在质检失败结果则添加错误修复信息

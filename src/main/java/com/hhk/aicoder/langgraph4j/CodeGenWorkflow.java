@@ -1,6 +1,5 @@
 package com.hhk.aicoder.langgraph4j;
 
-import cn.hutool.json.JSONUtil;
 import com.hhk.aicoder.exception.BusinessException;
 import com.hhk.aicoder.exception.ErrorCode;
 import com.hhk.aicoder.langgraph4j.model.QualityResult;
@@ -16,7 +15,6 @@ import org.bsc.langgraph4j.action.AsyncEdgeAction;
 import org.bsc.langgraph4j.prebuilt.MessagesState;
 import org.bsc.langgraph4j.prebuilt.MessagesStateGraph;
 import reactor.core.publisher.Flux;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
 
@@ -119,6 +117,10 @@ public class CodeGenWorkflow {
 
     /**
      * 执行工作流（Flux 流式输出版本）
+     * 内容流中只放工作流步骤状态消息（纯文本 markdown 引用样式），
+     * 兼容 HTML / Vue 两种协议。
+     * 代码生成 token 不再转发到 SSE —— 聊天气泡只显示步骤，
+     * 原始 AI 文本（规划段、代码、JSON 数据）会刷屏且无阅读价值。
      */
     public Flux<String> executeWorkflowWithFlux(String originalPrompt, Long appId) {
         return Flux.create(sink -> {
@@ -130,11 +132,9 @@ public class CodeGenWorkflow {
                             .appId(appId)
                             .currentStep("初始化")
                             .build();
-                    sink.next(formatSseEvent("workflow_start", Map.of(
-                            "message", "开始执行代码生成工作流",
-                            "originalPrompt", originalPrompt,
-                            "appId", appId
-                    )));
+
+                    sink.next(formatStatusEvent("⏳ 代码生成工作流启动，正在准备..."));
+
                     GraphRepresentation graph = workflow.getGraph(GraphRepresentation.Type.MERMAID);
                     log.info("工作流图:\n{}", graph.content());
 
@@ -144,25 +144,18 @@ public class CodeGenWorkflow {
                         log.info("--- 第 {} 步完成 ---", stepCounter);
                         WorkflowContext currentContext = WorkflowContext.getContext(step.state());
                         if (currentContext != null) {
-                            sink.next(formatSseEvent("step_completed", Map.of(
-                                    "stepNumber", stepCounter,
-                                    "currentStep", currentContext.getCurrentStep()
-                            )));
+                            sink.next(formatStatusEvent(String.format("✅ 步骤 %d 完成：%s",
+                                    stepCounter, currentContext.getCurrentStep())));
                             log.info("当前步骤上下文: {}", currentContext);
                         }
                         stepCounter++;
                     }
-                    sink.next(formatSseEvent("workflow_completed", Map.of(
-                            "message", "代码生成工作流执行完成！"
-                    )));
+                    sink.next(formatStatusEvent("🎉 代码生成工作流执行完成！"));
                     log.info("代码生成工作流执行完成！");
                     sink.complete();
                 } catch (Exception e) {
                     log.error("工作流执行失败: {}", e.getMessage(), e);
-                    sink.next(formatSseEvent("workflow_error", Map.of(
-                            "error", e.getMessage(),
-                            "message", "工作流执行失败"
-                    )));
+                    sink.next(formatStatusEvent("❌ 工作流执行失败：" + e.getMessage()));
                     sink.error(e);
                 }
             });
@@ -170,16 +163,12 @@ public class CodeGenWorkflow {
     }
 
     /**
-     * 格式化 SSE 事件的辅助方法
+     * 格式化工作流状态消息（纯文本，markdown 引用样式）
+     * 注意：这里不能输出 "event: xxx\ndata: {...}" 这种 SSE 原文，
+     * 否则会被下游 JSON handler 当对象解析导致报错。
      */
-    private String formatSseEvent(String eventType, Object data) {
-        try {
-            String jsonData = JSONUtil.toJsonStr(data);
-            return "event: " + eventType + "\ndata: " + jsonData + "\n\n";
-        } catch (Exception e) {
-            log.error("格式化 SSE 事件失败: {}", e.getMessage(), e);
-            return "event: error\ndata: {\"error\":\"格式化失败\"}\n\n";
-        }
+    private String formatStatusEvent(String text) {
+        return String.format("%n> %s%n%n", text);
     }
 
 

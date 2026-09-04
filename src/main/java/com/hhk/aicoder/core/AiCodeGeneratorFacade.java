@@ -9,8 +9,6 @@ import com.hhk.aicoder.ai.model.MultiFileCodeResult;
 import com.hhk.aicoder.ai.model.message.AiResponseMessage;
 import com.hhk.aicoder.ai.model.message.ToolExecutedMessage;
 import com.hhk.aicoder.ai.model.message.ToolRequestMessage;
-import com.hhk.aicoder.constant.AppConstant;
-import com.hhk.aicoder.core.builder.VueProjectBuilder;
 import com.hhk.aicoder.core.parser.CodeParserExecutor;
 import com.hhk.aicoder.core.saver.CodeFileSaverExecutor;
 import com.hhk.aicoder.exception.BusinessException;
@@ -57,10 +55,11 @@ public class AiCodeGeneratorFacade {
                         sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
                     })
                     .onCompleteResponse((ChatResponse response) -> {
-                        // 执行 Vue 项目构建（同步执行，确保预览时项目已就绪）
-                        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + "vue_project_" + appId;
-                        VueProjectBuilder vueProjectBuilder = new VueProjectBuilder();
-                        vueProjectBuilder.buildProject(projectPath);
+                        // 注意：不在这里同步构建 Vue 项目。
+                        // 构建交给工作流的 project_builder 节点（ProjectBuilderNode）去做，
+                        // 否则 npm install + build 会把 AI 代码生成流卡住几十分钟，
+                        // 导致 CodeGeneratorNode 的 blockLast 超时（实测 10 分钟不够）。
+                        log.info("AI 代码生成完成，appId={}，等待工作流 ProjectBuilderNode 进行构建", appId);
                         sink.complete();
                     })
 

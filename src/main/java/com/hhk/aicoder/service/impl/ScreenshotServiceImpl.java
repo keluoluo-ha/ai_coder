@@ -24,13 +24,16 @@ public class ScreenshotServiceImpl implements ScreenshotService {
     @Resource
     private CosManager cosManager;
 
+    @Resource
+    private WebScreenshotUtils webScreenshotUtils;
+
     @Override
     public String generateAndUploadScreenshot(String webUrl) {
         //参数校验
         ThrowUtils.throwIf(StringUtils.isBlank(webUrl), ErrorCode.PARAMS_ERROR, "url不能为空");
         log.info("开始生成网页截图，URL:{}",webUrl);
-        // 生成本地网页截图
-        String localScreenShotPath = WebScreenshotUtils.saveWebPageScreenShot(webUrl);
+        // 生成本地网页截图（失败时返回占位图路径，不抛异常）
+        String localScreenShotPath = webScreenshotUtils.saveWebPageScreenShot(webUrl);
         ThrowUtils.throwIf(StringUtils.isBlank(localScreenShotPath), ErrorCode.PARAMS_ERROR, "生成网页截图失败");
 
         try {

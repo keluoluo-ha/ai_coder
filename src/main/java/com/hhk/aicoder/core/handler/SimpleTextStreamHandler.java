@@ -1,5 +1,6 @@
 package com.hhk.aicoder.core.handler;
 
+import com.hhk.aicoder.langgraph4j.CodeGenWorkflow;
 import com.hhk.aicoder.model.entity.User;
 import com.hhk.aicoder.model.enums.ChatHistoryMessageTypeEnum;
 import com.hhk.aicoder.service.ChatHistoryService;
@@ -29,7 +30,9 @@ public class SimpleTextStreamHandler {
         StringBuilder aiResponseBuilder = new StringBuilder();
         return originFlux
                 .map(chunk -> {
-                    // 收集AI响应内容
+                    if (CodeGenWorkflow.isHeartbeat(chunk)) {
+                        return chunk;
+                    }
                     aiResponseBuilder.append(chunk);
                     return chunk;
                 })

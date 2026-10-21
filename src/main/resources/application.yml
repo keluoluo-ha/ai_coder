@@ -12,4 +12,57 @@ knife4j:
 spring:
   profiles:
     active: local
+  # P0-2：deployApp 同步等 npm build 30-180s。HTTP 走虚拟线程，不占 Tomcat 平台线程。
+  threads:
+    virtual:
+      enabled: true
+  # P0-3：SSE 对话最长 10 分钟，避免默认异步超时把连接掐掉。
+  mvc:
+    async:
+      request-timeout: 600000
+  # P1-5：连接池与 Tomcat 配回约 10:1（虚拟线程开启时 max=200 作兜底）
+  datasource:
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
 
+server:
+  tomcat:
+    threads:
+      max: 200
+
+# 截图 WebDriver 池。maxTotal 生产可调 5-8；借出超时返回占位图，不阻塞调用方。
+resilience4j:
+  circuitbreaker:
+    instances:
+      openai:
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 50
+        slow-call-duration-threshold: 30s
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+
+aicoder:
+  build:
+    queue:
+      # Local default; integration environments set AICODER_BUILD_QUEUE_TYPE=rabbitmq.
+      type: ${AICODER_BUILD_QUEUE_TYPE:redis}
+      confirm-timeout-millis: ${BUILD_QUEUE_CONFIRM_TIMEOUT_MILLIS:10000}
+  tmp:
+    ttl-hours: 24
+    max-bytes: 5368709120
+    target-bytes: 3221225472
+  cache:
+    l1-max-size: 1000
+    l1-expire-minutes: 5
+    l2-ttl-minutes: 5
+    bloom-expected-insertions: 1000000
+    bloom-false-probability: 0.01
+  screenshot:
+    pool-max-total: 3
+    pool-max-wait-millis: 5000
+    borrow-timeout-seconds: 60
+    placeholder-classpath: static/placeholder-screenshot.png

@@ -1,6 +1,7 @@
 package com.hhk.aicoder.core.builder;
 
 import cn.hutool.core.util.RuntimeUtil;
+import com.hhk.aicoder.job.TmpDirLock;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
 
@@ -12,16 +13,15 @@ public class VueProjectBuilder {
 
 
     /**
-     * 异步构建项目（不阻塞主线程）
-     * @param projectPath
+     * 异步构建（fire-and-forget）。构建未完成就返回 true，调用方立刻查 dist 必失败。
+     * 部署链路禁止使用，请调 {@link #buildProject(String)}。P2 队列化后再考虑异步。
      */
     public boolean buildProjectAsync(String projectPath) {
-        Thread.ofVirtual().name("vue-builder-"+System.currentTimeMillis()).start(() -> {
+        Thread.ofVirtual().name("vue-builder-" + System.currentTimeMillis()).start(() -> {
             try {
                 buildProject(projectPath);
             } catch (Exception e) {
                 log.error("Vue 项目构建失败", e);
-                throw new RuntimeException(e);
             }
         });
         return true;
@@ -47,24 +47,23 @@ public class VueProjectBuilder {
             return false;
         }
         log.info("开始构建 Vue 项目: {}", projectPath);
-        // 执行 npm install
-        if (!executeNpmInstall(projectDir)) {
-            log.error("npm install 执行失败");
-            return false;
-        }
-        // 执行 npm run build
-        if (!executeNpmBuild(projectDir)) {
-            log.error("npm run build 执行失败");
-            return false;
-        }
-        // 验证 dist 目录是否生成
-        File distDir = new File(projectDir, "dist");
-        if (!distDir.exists()) {
-            log.error("构建完成但 dist 目录未生成: {}", distDir.getAbsolutePath());
-            return false;
-        }
-        log.info("Vue 项目构建成功，dist 目录: {}", distDir.getAbsolutePath());
-        return true;
+        return TmpDirLock.withLock(projectDir, 0, 600, () -> {
+            if (!executeNpmInstall(projectDir)) {
+                log.error("npm install 执行失败");
+                return false;
+            }
+            if (!executeNpmBuild(projectDir)) {
+                log.error("npm run build 执行失败");
+                return false;
+            }
+            File distDir = new File(projectDir, "dist");
+            if (!distDir.exists()) {
+                log.error("构建完成但 dist 目录未生成: {}", distDir.getAbsolutePath());
+                return false;
+            }
+            log.info("Vue 项目构建成功，dist 目录: {}", distDir.getAbsolutePath());
+            return true;
+        });
     }
 
 
@@ -122,6 +121,10 @@ public class VueProjectBuilder {
                 log.error("命令执行失败，退出码: {}", exitCode);
                 return false;
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("执行命令被中断: {}", command, e);
+            return false;
         } catch (Exception e) {
             log.error("执行命令失败: {}, 错误信息: {}", command, e.getMessage());
             return false;

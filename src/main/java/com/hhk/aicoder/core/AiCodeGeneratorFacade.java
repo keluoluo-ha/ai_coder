@@ -65,8 +65,8 @@ public class AiCodeGeneratorFacade {
                     })
 
                     .onError((Throwable error) -> {
-                        error.printStackTrace();
-                        sink.error(error);
+                        log.warn("Vue 流式生成失败: {}", error.toString());
+                        sink.error(sanitizeAiError(error));
                     })
                     .start();
         });
@@ -116,11 +116,13 @@ public class AiCodeGeneratorFacade {
         }
         return switch (codeGenTypeEnum) {
             case HTML -> {
-                Flux<String> result = aiCodeGeneratorService.generateHtmlCodeStream(userMessage);
+                Flux<String> result = aiCodeGeneratorService.generateHtmlCodeStream(userMessage)
+                        .onErrorMap(AiCodeGeneratorFacade::sanitizeAiError);
                 yield processCodeStream(result,CodeGenTypeEnum.HTML,appId);
             }
             case MULTI_FILE ->{
-                Flux<String> result = aiCodeGeneratorService.generateMultiFileCodeStream(userMessage);
+                Flux<String> result = aiCodeGeneratorService.generateMultiFileCodeStream(userMessage)
+                        .onErrorMap(AiCodeGeneratorFacade::sanitizeAiError);
                 yield processCodeStream(result, CodeGenTypeEnum.MULTI_FILE, appId);
             }
             case VUE_PROJECT -> {
@@ -136,6 +138,21 @@ public class AiCodeGeneratorFacade {
 
 
 
+
+    static final String AI_FALLBACK = "生成失败，请重试";
+
+    private static Throwable sanitizeAiError(Throwable error) {
+        if (error instanceof com.hhk.aicoder.exception.ServiceBusyException
+                || error instanceof com.hhk.aicoder.exception.BusinessException) {
+            return error;
+        }
+        if (error instanceof RuntimeException runtime && AI_FALLBACK.equals(runtime.getMessage())) {
+            return runtime;
+        }
+        org.slf4j.LoggerFactory.getLogger(AiCodeGeneratorFacade.class)
+                .warn("AI 调用失败，返回兜底文案: {}", error.toString());
+        return new RuntimeException(AI_FALLBACK, error);
+    }
 
     /**
      * 生成代码并保存（流式）

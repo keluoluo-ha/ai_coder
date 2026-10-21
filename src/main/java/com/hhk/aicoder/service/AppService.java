@@ -24,6 +24,11 @@ public interface AppService extends IService<App> {
 
     AppVO getAppVO(App app);
 
+    /**
+     * 按 id 查应用。布隆过滤器判定不存在时直接 404，不打 DB。
+     */
+    App getAppByIdGuarded(Long appId);
+
     QueryWrapper getQueryWrapper(AppQueryRequest appQueryRequest);
 
     List<AppVO> getAppVOList(List<App> appList);

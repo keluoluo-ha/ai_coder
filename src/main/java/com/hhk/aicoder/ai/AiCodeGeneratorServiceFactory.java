@@ -4,6 +4,8 @@ package com.hhk.aicoder.ai;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.hhk.aicoder.ai.guardrial.PromptSafetyInputGuardrail;
+import com.hhk.aicoder.ai.resilience.CircuitBreakingStreamingChatModel;
+import com.hhk.aicoder.ai.resilience.OpenAiCircuitBreaker;
 import com.hhk.aicoder.ai.tools.*;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
 import com.hhk.aicoder.service.ChatHistoryService;
@@ -47,6 +49,9 @@ public class AiCodeGeneratorServiceFactory {
 
     @Resource
     private ToolManager toolManager;
+
+    @Resource
+    private OpenAiCircuitBreaker openAiCircuitBreaker;
 
     private final Cache<String,AiCodeGeneratorService> serviceCache= Caffeine.newBuilder()
             .maximumSize(1000)
@@ -112,9 +117,10 @@ public class AiCodeGeneratorServiceFactory {
         // LangChain4j 会把所有 token 先缓冲，校验完再一次性吐出，前端就会「思考很久 → 突然全文出现」。
         return switch (codeGenTypeEnum){
             case VUE_PROJECT -> {
-               StreamingChatModel reasoningStreamChatModel= SpringContextUtil.getBean("reasoningStreamingChatModel",StreamingChatModel.class);
+               StreamingChatModel reasoningStreamChatModel= wrapStreaming(
+                       SpringContextUtil.getBean("reasoningStreamingChatModel",StreamingChatModel.class));
                yield AiServices.builder(AiCodeGeneratorService.class)
-                       .streamingChatModel(reasoningStreamingChatModel)
+                       .streamingChatModel(reasoningStreamChatModel)
                        .chatMemoryProvider(memoryId->messageWindowChatMemory)
                        .tools(toolManager.getAllTool())
                        .inputGuardrails(new PromptSafetyInputGuardrail())
@@ -122,7 +128,8 @@ public class AiCodeGeneratorServiceFactory {
                        .build();
             }
             case HTML,MULTI_FILE -> {
-                StreamingChatModel openAistreamChatModel= SpringContextUtil.getBean("streamingChatModelPrototype",StreamingChatModel.class);
+                StreamingChatModel openAistreamChatModel= wrapStreaming(
+                        SpringContextUtil.getBean("streamingChatModelPrototype",StreamingChatModel.class));
                 yield AiServices.builder(AiCodeGeneratorService.class)
                         .streamingChatModel(openAistreamChatModel)
                         .inputGuardrails(new PromptSafetyInputGuardrail())
@@ -132,6 +139,13 @@ public class AiCodeGeneratorServiceFactory {
             default -> throw new IllegalArgumentException("unsupported codeGenTypeEnum:"+codeGenTypeEnum);
         };
 
+    }
+
+    private StreamingChatModel wrapStreaming(StreamingChatModel model) {
+        if (model instanceof CircuitBreakingStreamingChatModel) {
+            return model;
+        }
+        return new CircuitBreakingStreamingChatModel(model, openAiCircuitBreaker);
     }
 
     }

@@ -1,6 +1,8 @@
 package com.hhk.aicoder.langgraph4j.node;
 
+import com.hhk.aicoder.config.WorkflowExecutorConfig;
 import com.hhk.aicoder.core.builder.VueProjectBuilder;
+import com.hhk.aicoder.langgraph4j.WorkflowNodeAction;
 import com.hhk.aicoder.exception.BusinessException;
 import com.hhk.aicoder.exception.ErrorCode;
 import com.hhk.aicoder.langgraph4j.state.WorkflowContext;
@@ -11,14 +13,20 @@ import org.bsc.langgraph4j.action.AsyncNodeAction;
 import org.bsc.langgraph4j.prebuilt.MessagesState;
 
 import java.io.File;
+import java.util.concurrent.ExecutorService;
 
-import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
+import static com.hhk.aicoder.langgraph4j.WorkflowNodeAction.node_async;
 @Slf4j
 public class ProjectBuilderNode {
 
     public static AsyncNodeAction<MessagesState<String>> create() {
+        return create(WorkflowNodeAction.executor(WorkflowExecutorConfig.BUILD));
+    }
+
+    public static AsyncNodeAction<MessagesState<String>> create(ExecutorService executor) {
         return node_async(state -> {
             WorkflowContext context = WorkflowContext.getContext(state);
+            context.checkpoint();
             log.info("执行节点: 项目构建");
 
             // 获取必要的参数
@@ -46,6 +54,6 @@ public class ProjectBuilderNode {
             context.setBuildResultDir(buildResultDir);
             log.info("项目构建节点完成，最终目录: {}", buildResultDir);
             return WorkflowContext.saveContext(context);
-        });
+        }, executor);
     }
 }

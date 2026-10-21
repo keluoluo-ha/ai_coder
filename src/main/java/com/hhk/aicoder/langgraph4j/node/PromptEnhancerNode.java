@@ -18,6 +18,7 @@ public class PromptEnhancerNode {
     public static AsyncNodeAction<MessagesState<String>> create() {
         return node_async(state -> {
             WorkflowContext context = WorkflowContext.getContext(state);
+            context.checkpoint();
             log.info("执行节点: 提示词增强");
             // 获取原始提示词和图片列表
             String originalPrompt = context.getOriginalPrompt();

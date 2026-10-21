@@ -2,6 +2,8 @@ package com.hhk.aicoder.langgraph4j.node;
 
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
+import com.hhk.aicoder.config.WorkflowExecutorConfig;
+import com.hhk.aicoder.langgraph4j.WorkflowNodeAction;
 import com.hhk.aicoder.langgraph4j.ai.CodeQualityCheckService;
 import com.hhk.aicoder.langgraph4j.model.QualityResult;
 import com.hhk.aicoder.langgraph4j.state.WorkflowContext;
@@ -13,8 +15,9 @@ import org.bsc.langgraph4j.prebuilt.MessagesState;
 import java.io.File;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 
-import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
+import static com.hhk.aicoder.langgraph4j.WorkflowNodeAction.node_async;
 
 /**
  * 代码质量检查节点
@@ -29,8 +32,13 @@ public class CodeQualityCheckNode {
     );
 
     public static AsyncNodeAction<MessagesState<String>> create() {
+        return create(WorkflowNodeAction.executor(WorkflowExecutorConfig.QUALITY_CHECK));
+    }
+
+    public static AsyncNodeAction<MessagesState<String>> create(ExecutorService executor) {
         return node_async(state -> {
             WorkflowContext context = WorkflowContext.getContext(state);
+            context.checkpoint();
             log.info("执行节点: 代码质量检查");
             String generatedCodeDir = context.getGeneratedCodeDir();
             QualityResult qualityResult;
@@ -60,7 +68,7 @@ public class CodeQualityCheckNode {
             context.setCurrentStep("代码质量检查");
             context.setQualityResult(qualityResult);
             return WorkflowContext.saveContext(context);
-        });
+        }, executor);
     }
 
 

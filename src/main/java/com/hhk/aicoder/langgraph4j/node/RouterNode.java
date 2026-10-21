@@ -17,6 +17,7 @@ public class RouterNode {
     public static AsyncNodeAction<MessagesState<String>> create() {
         return node_async(state -> {
             WorkflowContext context = WorkflowContext.getContext(state);
+            context.checkpoint();
             log.info("执行节点: 智能路由");
 
             CodeGenTypeEnum generationType;

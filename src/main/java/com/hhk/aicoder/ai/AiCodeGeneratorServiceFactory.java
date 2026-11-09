@@ -4,8 +4,6 @@ package com.hhk.aicoder.ai;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.hhk.aicoder.ai.guardrial.PromptSafetyInputGuardrail;
-import com.hhk.aicoder.ai.resilience.CircuitBreakingStreamingChatModel;
-import com.hhk.aicoder.ai.resilience.OpenAiCircuitBreaker;
 import com.hhk.aicoder.ai.tools.*;
 import cn.hutool.core.util.StrUtil;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
@@ -56,9 +54,7 @@ public class AiCodeGeneratorServiceFactory {
     @Resource
     private ToolManager toolManager;
 
-    @Resource
-    private OpenAiCircuitBreaker openAiCircuitBreaker;
-
+<<<<<<< HEAD
     @Resource
     private AgentMemoryService agentMemoryService;
 
@@ -67,7 +63,6 @@ public class AiCodeGeneratorServiceFactory {
             CodeGenTypeEnum.MULTI_FILE, readPrompt("prompt/codegen-multi-file-system-prompt.txt"),
             CodeGenTypeEnum.VUE_PROJECT, readPrompt("prompt/codegen-vue-project-system-prompt.txt")
     );
-
     private final Cache<String,AiCodeGeneratorService> serviceCache= Caffeine.newBuilder()
             .maximumSize(1000)
             .expireAfterWrite(Duration.ofMinutes(30))
@@ -133,10 +128,9 @@ public class AiCodeGeneratorServiceFactory {
         // LangChain4j 会把所有 token 先缓冲，校验完再一次性吐出，前端就会「思考很久 → 突然全文出现」。
         return switch (codeGenTypeEnum){
             case VUE_PROJECT -> {
-               StreamingChatModel reasoningStreamChatModel= wrapStreaming(
-                       SpringContextUtil.getBean("reasoningStreamingChatModel",StreamingChatModel.class));
+               StreamingChatModel reasoningStreamChatModel= SpringContextUtil.getBean("reasoningStreamingChatModel",StreamingChatModel.class);
                yield AiServices.builder(AiCodeGeneratorService.class)
-                       .streamingChatModel(reasoningStreamChatModel)
+                       .streamingChatModel(reasoningStreamingChatModel)
                        .chatMemoryProvider(memoryId->messageWindowChatMemory)
                        .systemMessageProvider(memoryId -> systemMessage)
                        .tools(toolManager.getAllTool())
@@ -145,8 +139,7 @@ public class AiCodeGeneratorServiceFactory {
                        .build();
             }
             case HTML,MULTI_FILE -> {
-                StreamingChatModel openAistreamChatModel= wrapStreaming(
-                        SpringContextUtil.getBean("streamingChatModelPrototype",StreamingChatModel.class));
+                StreamingChatModel openAistreamChatModel= SpringContextUtil.getBean("streamingChatModelPrototype",StreamingChatModel.class);
                 yield AiServices.builder(AiCodeGeneratorService.class)
                         .streamingChatModel(openAistreamChatModel)
                         .inputGuardrails(new PromptSafetyInputGuardrail())
@@ -159,6 +152,7 @@ public class AiCodeGeneratorServiceFactory {
 
     }
 
+<<<<<<< HEAD
     private String resolveMemoryPrompt(long appId) {
         if (appId <= 0) {
             return "";
@@ -192,13 +186,6 @@ public class AiCodeGeneratorServiceFactory {
         } catch (IOException e) {
             throw new IllegalStateException("读取系统提示词失败: " + classpath, e);
         }
-    }
-
-    private StreamingChatModel wrapStreaming(StreamingChatModel model) {
-        if (model instanceof CircuitBreakingStreamingChatModel) {
-            return model;
-        }
-        return new CircuitBreakingStreamingChatModel(model, openAiCircuitBreaker);
     }
 
     }

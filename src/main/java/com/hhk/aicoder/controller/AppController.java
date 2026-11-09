@@ -5,7 +5,6 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.hhk.aicoder.ai.AiCodeGenTypeRoutingService;
 import com.hhk.aicoder.annotation.AuthCheck;
-import com.hhk.aicoder.cache.TwoLevelCache;
 import com.hhk.aicoder.common.BaseResponse;
 import com.hhk.aicoder.common.DeleteRequest;
 import com.hhk.aicoder.common.ResultUtils;
@@ -14,7 +13,6 @@ import com.hhk.aicoder.constant.UserConstant;
 import com.hhk.aicoder.exception.BusinessException;
 import com.hhk.aicoder.exception.ErrorCode;
 import com.hhk.aicoder.exception.ThrowUtils;
-import com.hhk.aicoder.langgraph4j.CodeGenWorkflow;
 import com.hhk.aicoder.model.dto.app.*;
 import com.hhk.aicoder.model.entity.User;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
@@ -23,12 +21,12 @@ import com.hhk.aicoder.ratelimiter.annotation.RateLimit;
 import com.hhk.aicoder.ratelimiter.enums.RateLimitType;
 import com.hhk.aicoder.service.ProjectDownloadService;
 import com.hhk.aicoder.service.UserService;
-import com.hhk.aicoder.utils.CacheKeyUtils;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.MediaType;
 
 import org.springframework.http.codec.ServerSentEvent;
@@ -67,9 +65,6 @@ public class AppController {
     @Resource
     private AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService;
 
-    @Resource
-    private TwoLevelCache twoLevelCache;
-
     /**
      * 创建应用
      *
@@ -78,7 +73,6 @@ public class AppController {
      * @return 应用 id
      */
     @PostMapping("/add")
-    @RateLimit(dim = {RateLimitType.USER}, rate = 20, rateInterval = 60, message = "创建过于频繁，请稍后再试")
     public BaseResponse<Long> addApp(@RequestBody AppAddRequest appAddRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(appAddRequest == null, ErrorCode.PARAMS_ERROR);
         // 参数校验
@@ -191,10 +185,12 @@ public class AppController {
      * @return 应用详情
      */
     @GetMapping("/get/vo")
-    @RateLimit(dim = {RateLimitType.IP}, rate = 60, rateInterval = 60, message = "查询过于频繁，请稍后再试")
     public BaseResponse<AppVO> getAppVOById(long id) {
         ThrowUtils.throwIf(id <= 0, ErrorCode.PARAMS_ERROR);
-        App app = appService.getAppByIdGuarded(id);
+        // 查询数据库
+        App app = appService.getById(id);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR);
+        // 获取封装类（包含用户信息）
         return ResultUtils.success(appService.getAppVO(app));
     }
 
@@ -207,7 +203,6 @@ public class AppController {
      * @return 应用列表
      */
     @PostMapping("/my/list/page/vo")
-    @RateLimit(dim = {RateLimitType.IP}, rate = 60, rateInterval = 60, message = "查询过于频繁，请稍后再试")
     public BaseResponse<Page<AppVO>> listMyAppVOByPage(@RequestBody AppQueryRequest appQueryRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(appQueryRequest == null, ErrorCode.PARAMS_ERROR);
         User loginUser = userService.getLoginUser(request);
@@ -233,32 +228,27 @@ public class AppController {
      * @return 精选应用列表
      */
     @PostMapping("/good/list/page/vo")
-    @RateLimit(dim = {RateLimitType.IP}, rate = 60, rateInterval = 60, message = "查询过于频繁，请稍后再试")
+    @Cacheable(
+            value = "good_app_page",
+            key = "T(com.hhk.aicoder.utils.CacheKeyUtils).generateKey(#appQueryRequest)",
+            condition = "#appQueryRequest.pageNum <= 10"
+    )
     public BaseResponse<Page<AppVO>> listGoodAppVOByPage(@RequestBody AppQueryRequest appQueryRequest) {
         ThrowUtils.throwIf(appQueryRequest == null, ErrorCode.PARAMS_ERROR);
+        // 限制每页最多 20 个
         long pageSize = appQueryRequest.getPageSize();
         ThrowUtils.throwIf(pageSize > 20, ErrorCode.PARAMS_ERROR, "每页最多查询 20 个应用");
-        if (appQueryRequest.getPageNum() > 10) {
-            return ResultUtils.success(loadGoodAppPage(appQueryRequest));
-        }
-        String cacheKey = CacheKeyUtils.generateKey(appQueryRequest);
-        GoodAppPageCache snapshot = twoLevelCache.get(
-                com.hhk.aicoder.config.CacheConfig.L2_GOOD_APP_PAGE,
-                cacheKey,
-                GoodAppPageCache.class,
-                () -> GoodAppPageCache.from(loadGoodAppPage(appQueryRequest)));
-        return ResultUtils.success(snapshot == null ? loadGoodAppPage(appQueryRequest) : snapshot.toPage());
-    }
-
-    private Page<AppVO> loadGoodAppPage(AppQueryRequest appQueryRequest) {
-        long pageSize = appQueryRequest.getPageSize();
         long pageNum = appQueryRequest.getPageNum();
+        // 只查询精选的应用
         appQueryRequest.setPriority(AppConstant.GOOD_APP_PRIORITY);
         QueryWrapper queryWrapper = appService.getQueryWrapper(appQueryRequest);
+        // 分页查询
         Page<App> appPage = appService.page(Page.of(pageNum, pageSize), queryWrapper);
+        // 数据封装
         Page<AppVO> appVOPage = new Page<>(pageNum, pageSize, appPage.getTotalRow());
-        appVOPage.setRecords(appService.getAppVOList(appPage.getRecords()));
-        return appVOPage;
+        List<AppVO> appVOList = appService.getAppVOList(appPage.getRecords());
+        appVOPage.setRecords(appVOList);
+        return ResultUtils.success(appVOPage);
     }
 
 
@@ -355,7 +345,7 @@ public class AppController {
     //对接 AI 大模型，第三方 SDK 返回的本身就是 Flux 数据流
 
     @GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    @RateLimit(dim = {RateLimitType.USER}, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
+    @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
     public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam Long appId,
                                       @RequestParam String message,
                                       HttpServletRequest request) {
@@ -367,15 +357,9 @@ public class AppController {
         // 调用服务生成代码（流式）
         Flux<String> contentFlux = appService.chatToGenCode(appId, message, loginUser);
         return contentFlux.map(
-                chunk -> {
-                    if (CodeGenWorkflow.isHeartbeat(chunk)) {
-                        return ServerSentEvent.<String>builder()
-                                .event("heartbeat")
-                                .data(CodeGenWorkflow.HEARTBEAT_JSON)
-                                .build();
-                    }
+                chunk->{
                     //将内容包装成JSON对象 避免丢失空格
-                    Map<String, String> wrapper = Map.of("d", chunk);
+                    Map<String,String> wrapper=Map.of("d",chunk);
                     String jsonData = JSONUtil.toJsonStr(wrapper);
                     return ServerSentEvent.<String>builder()
                             .data(jsonData)
@@ -396,19 +380,15 @@ public class AppController {
      * @param request          请求
      * @return 部署 URL
      */
-    /**
-     * Vue 部署会同步 npm install/build。请求跑在虚拟线程上，等待不占平台线程。
-     */
     @PostMapping("/deploy")
-    @RateLimit(dim = {RateLimitType.USER}, rate = 20, rateInterval = 60, message = "部署过于频繁，请稍后再试")
-    public BaseResponse<BuildStatus> deployApp(@RequestBody AppDeployRequest appDeployRequest, HttpServletRequest request) {
+    public BaseResponse<String> deployApp(@RequestBody AppDeployRequest appDeployRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(appDeployRequest == null, ErrorCode.PARAMS_ERROR);
         Long appId = appDeployRequest.getAppId();
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
         // 获取当前登录用户
         User loginUser = userService.getLoginUser(request);
         // 调用服务部署应用
-        BuildStatus deployUrl = appService.deployApp(appId, loginUser);
+        String deployUrl = appService.deployApp(appId, loginUser);
         return ResultUtils.success(deployUrl);
     }
 
@@ -419,20 +399,6 @@ public class AppController {
      * @param app 应用
      * @return {@code true} 保存成功，{@code false} 保存失败
      */
-    @Resource
-    private com.hhk.aicoder.build.BuildStatusService buildStatuses;
-
-    @GetMapping("/build/status/{deployKey}")
-    public BaseResponse<BuildStatus> buildStatus(@PathVariable String deployKey, HttpServletRequest request) {
-        User user=userService.getLoginUser(request);
-        BuildStatus status=buildStatuses.get(deployKey);
-        ThrowUtils.throwIf(status==null,ErrorCode.NOT_FOUND_ERROR);
-        App app=appService.getById(status.getAppId());
-        ThrowUtils.throwIf(app==null,ErrorCode.NOT_FOUND_ERROR);
-        ThrowUtils.throwIf(!user.getId().equals(app.getUserId()),ErrorCode.NO_AUTH_ERROR);
-        return ResultUtils.success(status);
-    }
-
     @PostMapping("save")
     public boolean save(@RequestBody App app) {
         return appService.save(app);
@@ -466,7 +432,6 @@ public class AppController {
      * @return 所有数据
      */
     @GetMapping("list")
-    @RateLimit(dim = {RateLimitType.IP}, rate = 60, rateInterval = 60, message = "查询过于频繁，请稍后再试")
     public List<App> list() {
         return appService.list();
     }
@@ -478,7 +443,6 @@ public class AppController {
      * @return 应用详情
      */
     @GetMapping("getInfo/{id}")
-    @RateLimit(dim = {RateLimitType.IP}, rate = 60, rateInterval = 60, message = "查询过于频繁，请稍后再试")
     public App getInfo(@PathVariable Long id) {
         return appService.getById(id);
     }

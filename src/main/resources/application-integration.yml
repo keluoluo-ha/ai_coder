@@ -1,6 +1,0 @@
-# Activate alongside the existing environment settings: local,integration.
-# This profile only selects the queue backend; DB/Redis settings must still be supplied.
-aicoder:
-  build:
-    queue:
-      type: rabbitmq

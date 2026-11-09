@@ -1,12 +1,12 @@
 package com.hhk.aicoder.core.handler;
 
+import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.hhk.aicoder.ai.model.message.*;
 import com.hhk.aicoder.ai.tools.BaseTool;
 import com.hhk.aicoder.ai.tools.ToolManager;
-import com.hhk.aicoder.langgraph4j.CodeGenWorkflow;
 import com.hhk.aicoder.model.entity.User;
 import com.hhk.aicoder.model.enums.ChatHistoryMessageTypeEnum;
 import com.hhk.aicoder.service.ChatHistoryService;
@@ -49,8 +49,11 @@ public class JsonMessageStreamHandler {
         // 用于跟踪已经见过的工具ID，判断是否是第一次调用
         Set<String> seenToolIds = new HashSet<>();
         return originFlux
-                .map(chunk -> handleJsonMessageChunk(chunk, chatHistoryStringBuilder, seenToolIds))
-                .filter(StrUtil::isNotBlank)
+                .map(chunk -> {
+                    // 解析每个 JSON 消息块
+                    return handleJsonMessageChunk(chunk, chatHistoryStringBuilder, seenToolIds);
+                })
+                .filter(StrUtil::isNotEmpty) // 过滤空字串
                 .doOnError(error -> {
                     // 如果AI回复失败，也要记录错误消息
                     String errorMessage = "AI回复失败: " + error.getMessage();
@@ -63,25 +66,9 @@ public class JsonMessageStreamHandler {
      */
     private String handleJsonMessageChunk(String chunk, StringBuilder chatHistoryStringBuilder, Set<String> seenToolIds) {
         // 解析 JSON
-        String normalizedChunk = chunk == null ? "" : chunk.trim();
-        if (!normalizedChunk.startsWith("{")) {
-            return " ";
-        }
-        StreamMessage streamMessage;
-        try {
-            streamMessage = JSONUtil.toBean(normalizedChunk, StreamMessage.class);
-        } catch (Exception e) {
-            log.warn("跳过无法解析的消息块: {}, error={}", normalizedChunk, e.getMessage());
-            return " ";
-        }
+        StreamMessage streamMessage = JSONUtil.toBean(chunk, StreamMessage.class);
         StreamMessageTypeEnum typeEnum = StreamMessageTypeEnum.getEnumByValue(streamMessage.getType());
-        if (typeEnum == null) {
-            return " ";
-        }
         switch (typeEnum) {
-            case HEARTBEAT -> {
-                return CodeGenWorkflow.HEARTBEAT_JSON;
-            }
             case AI_RESPONSE -> {
                 AiResponseMessage aiMessage = JSONUtil.toBean(chunk, AiResponseMessage.class);
                 String data = aiMessage.getData();
@@ -101,7 +88,7 @@ public class JsonMessageStreamHandler {
                     return tool.generateToolRequestResponse();
                 } else {
                     // 不是第一次调用这个工具，直接返回空
-                    return " ";
+                    return "";
                 }
             }
             case TOOL_EXECUTED -> {
@@ -110,7 +97,7 @@ public class JsonMessageStreamHandler {
                 JSONObject jsonObject = JSONUtil.parseObj(toolExecutedMessage.getArguments());
                 BaseTool tools = toolManager.getTools(name);
                 String result = tools.generateToolExecutedResult(jsonObject);
-                String output = String.format("\n\n%s\n\n", result);
+                String output = String.format("/n/n%s/n/n", result);
                 chatHistoryStringBuilder.append(output);
                 return output;
             }

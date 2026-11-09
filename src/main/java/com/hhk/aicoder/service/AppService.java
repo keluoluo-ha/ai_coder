@@ -48,7 +48,7 @@ public interface AppService extends IService<App> {
      * @param loginUser
      * @return
      */
-    com.hhk.aicoder.model.dto.app.BuildStatus deployApp(Long appId, User loginUser);
+    String deployApp(Long appId, User loginUser);
 
 
     /**

@@ -1,6 +1,5 @@
 package com.hhk.aicoder.langgraph4j.state;
 
-import com.hhk.aicoder.langgraph4j.WorkflowCancellation;
 import com.hhk.aicoder.langgraph4j.model.ImageResource;
 import com.hhk.aicoder.langgraph4j.model.QualityResult;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
@@ -84,20 +83,11 @@ public class WorkflowContext implements Serializable {
      */
     private QualityResult qualityResult;
 
-    /**
-     * 取消标志。不参与序列化；节点跑在 ForkJoinPool 时靠这个跨线程感知客户端断开。
-     */
-    private transient WorkflowCancellation cancellation;
+
+
 
     @Serial
     private static final long serialVersionUID = 1L;
-
-    public void checkpoint() {
-        WorkflowCancellation target = cancellation != null ? cancellation : WorkflowCancellation.current();
-        if (target != null) {
-            target.checkpoint();
-        }
-    }
 
     // ========== 上下文操作方法 ==========
 

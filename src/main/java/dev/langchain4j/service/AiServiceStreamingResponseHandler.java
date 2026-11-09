@@ -22,9 +22,6 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.Executor;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
@@ -120,41 +117,46 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
         addToMemory(aiMessage);
 
         if (aiMessage.hasToolExecutionRequests()) {
-            // 回调线程立刻返回。工具 IO 丢到 toolExecutor。
-            // 同一轮必须串行：FileWrite → FileRead → Modify 顺序不能乱，用 thenCompose 串联。
-            Executor toolPool = toolExecutionPool();
-            CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
             for (ToolExecutionRequest toolExecutionRequest : aiMessage.toolExecutionRequests()) {
-                chain = chain.thenCompose(ignored ->
-                        CompletableFuture.runAsync(() -> executeOneTool(toolExecutionRequest), toolPool));
-            }
-            chain.whenComplete((ignored, error) -> {
-                if (error != null) {
-                    onError(unwrap(error));
-                    return;
+                String toolName = toolExecutionRequest.name();
+                ToolExecutor toolExecutor = toolExecutors.get(toolName);
+                String toolExecutionResult = toolExecutor.execute(toolExecutionRequest, memoryId);
+                ToolExecutionResultMessage toolExecutionResultMessage =
+                        ToolExecutionResultMessage.from(toolExecutionRequest, toolExecutionResult);
+                addToMemory(toolExecutionResultMessage);
+
+                if (toolExecutionHandler != null) {
+                    ToolExecution toolExecution = ToolExecution.builder()
+                            .request(toolExecutionRequest)
+                            .result(toolExecutionResult)
+                            .build();
+                    toolExecutionHandler.accept(toolExecution);
                 }
-                ChatRequest chatRequest = ChatRequest.builder()
-                        .messages(messagesToSend(memoryId))
-                        .toolSpecifications(toolSpecifications)
-                        .build();
-                var handler = new AiServiceStreamingResponseHandler(
-                        chatExecutor,
-                        context,
-                        memoryId,
-                        partialResponseHandler,
-                        partialToolExecutionRequestHandler,
-                        completeToolExecutionRequestHandler,
-                        toolExecutionHandler,
-                        completeResponseHandler,
-                        errorHandler,
-                        temporaryMemory,
-                        TokenUsage.sum(tokenUsage, completeResponse.metadata().tokenUsage()),
-                        toolSpecifications,
-                        toolExecutors,
-                        commonGuardrailParams,
-                        methodKey);
-                context.streamingChatModel.chat(chatRequest, handler);
-            });
+            }
+
+            ChatRequest chatRequest = ChatRequest.builder()
+                    .messages(messagesToSend(memoryId))
+                    .toolSpecifications(toolSpecifications)
+                    .build();
+
+            var handler = new AiServiceStreamingResponseHandler(
+                    chatExecutor,
+                    context,
+                    memoryId,
+                    partialResponseHandler,
+                    partialToolExecutionRequestHandler,
+                    completeToolExecutionRequestHandler,
+                    toolExecutionHandler,
+                    completeResponseHandler,
+                    errorHandler,
+                    temporaryMemory,
+                    TokenUsage.sum(tokenUsage, completeResponse.metadata().tokenUsage()),
+                    toolSpecifications,
+                    toolExecutors,
+                    commonGuardrailParams,
+                    methodKey);
+
+            context.streamingChatModel.chat(chatRequest, handler);
         } else {
             if (completeResponseHandler != null) {
                 ChatResponse finalChatResponse = ChatResponse.builder()
@@ -195,50 +197,6 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
                 completeResponseHandler.accept(finalChatResponse);
             }
         }
-    }
-
-    /**
-     * 单个工具在 toolExecutor 上执行。必须按请求顺序调用，不能并行。
-     */
-    private Void executeOneTool(ToolExecutionRequest toolExecutionRequest) {
-        String toolName = toolExecutionRequest.name();
-        ToolExecutor toolExecutor = toolExecutors.get(toolName);
-        if (toolExecutor == null) {
-            throw new IllegalStateException("No ToolExecutor for tool: " + toolName);
-        }
-        String toolExecutionResult = toolExecutor.execute(toolExecutionRequest, memoryId);
-        ToolExecutionResultMessage toolExecutionResultMessage =
-                ToolExecutionResultMessage.from(toolExecutionRequest, toolExecutionResult);
-        addToMemory(toolExecutionResultMessage);
-        if (toolExecutionHandler != null) {
-            ToolExecution toolExecution = ToolExecution.builder()
-                    .request(toolExecutionRequest)
-                    .result(toolExecutionResult)
-                    .build();
-            toolExecutionHandler.accept(toolExecution);
-        }
-        return null;
-    }
-
-    static Executor toolExecutionPool() {
-        try {
-            return com.hhk.aicoder.utils.SpringContextUtil.getBean(
-                    com.hhk.aicoder.config.ToolExecutorConfig.BEAN_NAME, Executor.class);
-        } catch (Exception e) {
-            LOG.warn("toolExecutor Bean 不可用，使用 fallback 池，避免落到 ForkJoinPool.commonPool()");
-            return FallbackHolder.INSTANCE;
-        }
-    }
-
-    private static final class FallbackHolder {
-        private static final Executor INSTANCE = com.hhk.aicoder.config.ToolExecutorConfig.fallback();
-    }
-
-    private static Throwable unwrap(Throwable error) {
-        if (error instanceof CompletionException && error.getCause() != null) {
-            return error.getCause();
-        }
-        return error;
     }
 
     private ChatMemory getMemory() {

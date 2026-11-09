@@ -2,10 +2,6 @@ package com.hhk.aicoder.langgraph4j.node;
 
 import com.hhk.aicoder.constant.AppConstant;
 import com.hhk.aicoder.core.AiCodeGeneratorFacade;
-import com.hhk.aicoder.langgraph4j.WorkflowNodeAction;
-import com.hhk.aicoder.config.WorkflowExecutorConfig;
-import com.hhk.aicoder.langgraph4j.WorkflowCancellation;
-import com.hhk.aicoder.langgraph4j.WorkflowCancelledException;
 import com.hhk.aicoder.langgraph4j.model.QualityResult;
 import com.hhk.aicoder.langgraph4j.state.WorkflowContext;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
@@ -16,21 +12,15 @@ import org.bsc.langgraph4j.prebuilt.MessagesState;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
-import java.util.concurrent.ExecutorService;
 
-import static com.hhk.aicoder.langgraph4j.WorkflowNodeAction.node_async;
+import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
 
 @Slf4j
 public class CodeGeneratorNode {
 
     public static AsyncNodeAction<MessagesState<String>> create() {
-        return create(WorkflowNodeAction.executor(WorkflowExecutorConfig.CODE_GEN));
-    }
-
-    public static AsyncNodeAction<MessagesState<String>> create(ExecutorService executor) {
         return node_async(state -> {
             WorkflowContext context = WorkflowContext.getContext(state);
-            context.checkpoint();
             log.info("执行节点: 代码生成");
             String userMessage = buildUserMessage(context);
             CodeGenTypeEnum generationType = context.getGenerationType();
@@ -41,18 +31,10 @@ public class CodeGeneratorNode {
             if (appId == null) {
                 throw new com.hhk.aicoder.exception.BusinessException(com.hhk.aicoder.exception.ErrorCode.PARAMS_ERROR, "appId 不能为空");
             }
-            WorkflowCancellation cancellation = context.getCancellation() != null
-                    ? context.getCancellation() : WorkflowCancellation.current();
-            // 调用流式代码生成。节点跑在 codeGenExecutor 专用池，取消标志通过 takeUntilOther 掐断 AI 流。
+            // 调用流式代码生成
             Flux<String> codeStream = codeGeneratorFacade.generateAndSaveCodeStream(userMessage, generationType, appId);
-            if (cancellation != null) {
-                codeStream = codeStream.takeUntilOther(cancellation.cancelledMono());
-            }
-            codeStream.blockLast(Duration.ofMinutes(10));
-            if (cancellation != null && cancellation.isCancelled()) {
-                throw new WorkflowCancelledException("客户端已断开，代码生成已取消");
-            }
-            context.checkpoint();
+            // 同步等待流式输出完成
+            codeStream.blockLast(Duration.ofMinutes(10)); // 最多等待 10 分钟
             // 根据类型设置生成目录
             String generatedCodeDir = String.format("%s/%s_%s", AppConstant.CODE_OUTPUT_ROOT_DIR, generationType.getValue(), appId);
             log.info("AI 代码生成完成，生成目录: {}", generatedCodeDir);
@@ -61,7 +43,7 @@ public class CodeGeneratorNode {
             context.setCurrentStep("代码生成");
             context.setGeneratedCodeDir(generatedCodeDir);
             return WorkflowContext.saveContext(context);
-        }, executor);
+        });
     }
     /**
      * 构造用户消息，如果存在质检失败结果则添加错误修复信息

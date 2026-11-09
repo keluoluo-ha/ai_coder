@@ -7,10 +7,8 @@ import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import com.hhk.aicoder.ai.AiCodeGenTypeRoutingService;
 import com.hhk.aicoder.ai.AiCodeGenTypeRoutingServiceFactory;
-import com.hhk.aicoder.cache.AppIdBloomFilter;
 import com.hhk.aicoder.common.ResultUtils;
 import com.hhk.aicoder.constant.AppConstant;
-import com.hhk.aicoder.job.TmpDirLock;
 import com.hhk.aicoder.core.builder.VueProjectBuilder;
 import com.hhk.aicoder.core.handler.StreamHandlerExecutor;
 import com.hhk.aicoder.langgraph4j.CodeGenWorkflow;
@@ -29,7 +27,6 @@ import com.hhk.aicoder.monitor.MonitorContextHolder;
 import com.hhk.aicoder.service.ChatHistoryService;
 import com.hhk.aicoder.service.ScreenshotService;
 import com.hhk.aicoder.service.UserService;
-import com.hhk.aicoder.utils.TraceIdHolder;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.hhk.aicoder.model.entity.App;
@@ -73,22 +70,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     private VueProjectBuilder vueProjectBuilder;
     @Resource
     private ScreenshotService screenshotService;
-    @Resource
-    private AppIdBloomFilter appIdBloomFilter;
 
-
-    @Override
-    public App getAppByIdGuarded(Long appId) {
-        if (appId == null || appId <= 0) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR);
-        }
-        if (!appIdBloomFilter.mightContain(appId)) {
-            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
-        }
-        App app = this.getById(appId);
-        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR);
-        return app;
-    }
 
     @Override
     public AppVO getAppVO(App app) {
@@ -179,68 +161,79 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         if(codeGenType==null)
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "代码生成类型错误");
         chatHistoryService.addChatMessage(appId,message, ChatHistoryMessageTypeEnum.USER.getValue(),loginUser.getId());
-        MonitorContextHolder.setContext(MonitorContext.builder()
-                .userId(loginUser.getId().toString())
-                .appId(appId.toString())
-                .build());
+        //设置监控上下文
+//        MonitorContextHolder.setContext(MonitorContext.builder().userId(loginUser.getId().toString())
+//                .appId(appId.toString())
+//                .build());
         // LangGraph：搜图 + 提示词增强后，再按应用已有类型流式生成
         Flux<String> contentflux = new CodeGenWorkflow().executeWorkflowWithFlux(message, appId);
-        //保存代码保存ai对话历史记录；客户端断开时 doFinally 同步清 ThreadLocal，避免泄漏
-        return streamHandlerExecutor.doExecute(contentflux, chatHistoryService, appId, loginUser,codeGenTypeEnum)
-                .doFinally(signalType -> MonitorContextHolder.clearContext());
+        //保存代码保存ai对话历史记录
+        return streamHandlerExecutor.doExecute(contentflux, chatHistoryService, appId, loginUser,codeGenTypeEnum).doFinally(signalType ->
+        { MonitorContextHolder.clearContext();}
+        );
 
     }
-
-    @Resource
-    private com.hhk.aicoder.build.BuildQueueService buildQueue;
-    @Resource
-    private com.hhk.aicoder.build.BuildStatusService buildStatuses;
-    @Resource
-    private org.redisson.api.RedissonClient buildRedisson;
 
     @Override
-    public com.hhk.aicoder.model.dto.app.BuildStatus deployApp(Long appId, User loginUser) {
-        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR);
-        ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR);
-        var lock=buildRedisson.getLock("aicoder:deploy:submit:"+appId);
-        lock.lock();
-        try {
-            App app=this.getById(appId);
-            ThrowUtils.throwIf(app==null,ErrorCode.NOT_FOUND_ERROR);
-            ThrowUtils.throwIf(!loginUser.getId().equals(app.getUserId()),ErrorCode.NO_AUTH_ERROR);
-            String key=app.getDeployKey();
-            if (StrUtil.isBlank(key)) key=RandomUtil.randomString(16);
-            var existing=buildStatuses.get(key);
-            if(existing!=null && java.util.Set.of("PENDING","RUNNING","RETRYING").contains(existing.getStatus())) return existing;
-            File project=new File(AppConstant.CODE_OUTPUT_ROOT_DIR,app.getCodeGenType()+"_"+appId);
-            ThrowUtils.throwIf(!project.isDirectory(),ErrorCode.SYSTEM_ERROR,"Application code missing");
-            App update=new App(); update.setId(appId); update.setDeployKey(key);
-            ThrowUtils.throwIf(!this.updateById(update),ErrorCode.OPERATION_ERROR);
-            var task=new com.hhk.aicoder.build.BuildTask(key,project.getAbsolutePath(),appId,TraceIdHolder.current(),0);
-            buildStatuses.save(task,"PENDING","????",null);
-            try { buildQueue.offer(task); }
-            catch (RuntimeException e) {
-                buildStatuses.save(task,"FAILED","????????",null);
-                log.error("Build enqueue failed, traceId={}",task.traceId(),e);
-                throw new com.hhk.aicoder.exception.ServiceBusyException();
-            }
-            return com.hhk.aicoder.model.dto.app.BuildStatus.builder().appId(appId).deployKey(key)
-                    .status("PENDING").message("????").traceId(task.traceId()).updatedAt(System.currentTimeMillis()).build();
-        } finally { lock.unlock(); }
-    }
+    public String deployApp(Long appId, User loginUser) {
+        // 1. 参数校验
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
+        ThrowUtils.throwIf(loginUser == null, ErrorCode.NOT_LOGIN_ERROR, "用户未登录");
+        // 2. 查询应用信息
+        App app = this.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        // 3. 验证用户是否有权限部署该应用，仅本人可以部署
+        if (!app.getUserId().equals(loginUser.getId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限部署该应用");
+        }
+        // 4. 检查是否已有 deployKey
+        String deployKey = app.getDeployKey();
+        // 没有则生成 6 位 deployKey（大小写字母 + 数字）
+        if (StrUtil.isBlank(deployKey)) {
+            deployKey = RandomUtil.randomString(6);
+        }
+        // 5. 获取代码生成类型，构建源目录路径
+        String codeGenType = app.getCodeGenType();
+        String sourceDirName = codeGenType + "_" + appId;
+        String sourceDirPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + sourceDirName;
+        // 6. 检查源目录是否存在
+        File sourceDir = new File(sourceDirPath);
+        if (!sourceDir.exists() || !sourceDir.isDirectory()) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用代码不存在，请先生成代码");
+        }
 
-    /**
-     * 列目录名，构建失败时便于对照 npm 实际产物。
-     */
-    private static String listDirNames(File dir) {
-        if (dir == null || !dir.exists() || !dir.isDirectory()) {
-            return "DIR_MISSING";
+        //vue项目特殊处理 需要提前执行构建
+        CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(codeGenType);
+        if(codeGenTypeEnum == CodeGenTypeEnum.VUE_PROJECT) {
+            
+            boolean res = vueProjectBuilder.buildProjectAsync(sourceDirPath);
+            ThrowUtils.throwIf(!res, ErrorCode.SYSTEM_ERROR, "构建失败");
+            //检查dist目录是否存在
+            File distDir = new File(sourceDirPath, "dist");
+            ThrowUtils.throwIf(!distDir.exists() || !distDir.isDirectory(), ErrorCode.SYSTEM_ERROR, "构建失败，dist目录不存在");
+            sourceDir = distDir;
+            log.info("构建成功");
+
         }
-        String[] names = dir.list();
-        if (names == null || names.length == 0) {
-            return "EMPTY";
+        // 7. 复制文件到部署目录
+        String deployDirPath = AppConstant.CODE_DEPLOY_ROOT_DIR + File.separator + deployKey;
+        try {
+            FileUtil.copyContent(sourceDir, new File(deployDirPath), true);
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "部署失败：" + e.getMessage());
         }
-        return String.join(",", names);
+        // 8. 更新应用的 deployKey 和部署时间
+        App updateApp = new App();
+        updateApp.setId(appId);
+        updateApp.setDeployKey(deployKey);
+        updateApp.setDeployedTime(LocalDateTime.now());
+        boolean updateResult = this.updateById(updateApp);
+        ThrowUtils.throwIf(!updateResult, ErrorCode.OPERATION_ERROR, "更新应用部署信息失败");
+        // 9. 返回可访问的 URL
+        String deployUrl = String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, deployKey);
+        //10. 异步生成封面截图并且更新应用界面
+        generateAppScreenShotAsync(appId,deployUrl);
+        return deployUrl;
     }
 
     private void generateAppScreenShotAsync(Long appId, String deployUrl) {
@@ -299,7 +292,6 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         // 插入数据库
         boolean result = this.save(app);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
-        appIdBloomFilter.add(app.getId());
         return app.getId();
     }
 

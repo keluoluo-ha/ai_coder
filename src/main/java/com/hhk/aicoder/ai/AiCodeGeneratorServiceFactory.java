@@ -7,7 +7,9 @@ import com.hhk.aicoder.ai.guardrial.PromptSafetyInputGuardrail;
 import com.hhk.aicoder.ai.resilience.CircuitBreakingStreamingChatModel;
 import com.hhk.aicoder.ai.resilience.OpenAiCircuitBreaker;
 import com.hhk.aicoder.ai.tools.*;
+import cn.hutool.core.util.StrUtil;
 import com.hhk.aicoder.model.enums.CodeGenTypeEnum;
+import com.hhk.aicoder.service.AgentMemoryService;
 import com.hhk.aicoder.service.ChatHistoryService;
 import com.hhk.aicoder.utils.SpringContextUtil;
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
@@ -22,7 +24,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * @author hhk
@@ -52,6 +58,15 @@ public class AiCodeGeneratorServiceFactory {
 
     @Resource
     private OpenAiCircuitBreaker openAiCircuitBreaker;
+
+    @Resource
+    private AgentMemoryService agentMemoryService;
+
+    private static final Map<CodeGenTypeEnum, String> BASE_SYSTEM_PROMPTS = Map.of(
+            CodeGenTypeEnum.HTML, readPrompt("prompt/codegen-html-system-prompt.txt"),
+            CodeGenTypeEnum.MULTI_FILE, readPrompt("prompt/codegen-multi-file-system-prompt.txt"),
+            CodeGenTypeEnum.VUE_PROJECT, readPrompt("prompt/codegen-vue-project-system-prompt.txt")
+    );
 
     private final Cache<String,AiCodeGeneratorService> serviceCache= Caffeine.newBuilder()
             .maximumSize(1000)
@@ -112,6 +127,7 @@ public class AiCodeGeneratorServiceFactory {
                 .build();
         //加载历史对话
         chatHistoryService.loadChatHitstoryToMemory(appId,messageWindowChatMemory,20);
+        String systemMessage = composeSystemPrompt(codeGenTypeEnum, resolveMemoryPrompt(appId));
         //根据类型切换大模型
         // 注意：流式服务不要配置 outputGuardrails。
         // LangChain4j 会把所有 token 先缓冲，校验完再一次性吐出，前端就会「思考很久 → 突然全文出现」。
@@ -122,6 +138,7 @@ public class AiCodeGeneratorServiceFactory {
                yield AiServices.builder(AiCodeGeneratorService.class)
                        .streamingChatModel(reasoningStreamChatModel)
                        .chatMemoryProvider(memoryId->messageWindowChatMemory)
+                       .systemMessageProvider(memoryId -> systemMessage)
                        .tools(toolManager.getAllTool())
                        .inputGuardrails(new PromptSafetyInputGuardrail())
                        .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(toolExecutionRequest,"Error:there is no tool called"+toolExecutionRequest))
@@ -134,11 +151,47 @@ public class AiCodeGeneratorServiceFactory {
                         .streamingChatModel(openAistreamChatModel)
                         .inputGuardrails(new PromptSafetyInputGuardrail())
                         .chatMemoryProvider(memoryId->messageWindowChatMemory)
+                        .systemMessageProvider(memoryId -> systemMessage)
                         .build();
             }
             default -> throw new IllegalArgumentException("unsupported codeGenTypeEnum:"+codeGenTypeEnum);
         };
 
+    }
+
+    private String resolveMemoryPrompt(long appId) {
+        if (appId <= 0) {
+            return "";
+        }
+        Long userId = agentMemoryService.getUserIdByAppId(appId);
+        if (userId == null) {
+            return "";
+        }
+        String memoryPrompt = agentMemoryService.buildMemoryPrompt(userId);
+        return memoryPrompt == null ? "" : memoryPrompt;
+    }
+
+    /**
+     * systemMessageProvider 会覆盖接口上的 @SystemMessage，因此这里带上原来的提示词文件。
+     * HTML 与 MULTI_FILE 共用一个 builder，但服务按代码生成类型分别缓存，提示词按类型取。
+     */
+    private String composeSystemPrompt(CodeGenTypeEnum codeGenTypeEnum, String memoryPromptBlock) {
+        String basePrompt = BASE_SYSTEM_PROMPTS.get(codeGenTypeEnum);
+        if (StrUtil.isBlank(memoryPromptBlock)) {
+            return basePrompt;
+        }
+        return basePrompt + "\n\n" + memoryPromptBlock;
+    }
+
+    private static String readPrompt(String classpath) {
+        try (InputStream in = AiCodeGeneratorServiceFactory.class.getClassLoader().getResourceAsStream(classpath)) {
+            if (in == null) {
+                throw new IllegalStateException("系统提示词不存在: " + classpath);
+            }
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new IllegalStateException("读取系统提示词失败: " + classpath, e);
+        }
     }
 
     private StreamingChatModel wrapStreaming(StreamingChatModel model) {

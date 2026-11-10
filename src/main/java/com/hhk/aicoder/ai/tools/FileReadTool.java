@@ -1,5 +1,6 @@
 package com.hhk.aicoder.ai.tools;
 
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import com.hhk.aicoder.constant.AppConstant;
 import dev.langchain4j.agent.tool.P;
@@ -37,7 +38,13 @@ public class FileReadTool extends BaseTool{
             if (!Files.exists(path) || !Files.isRegularFile(path)) {
                 return "错误：文件不存在或不是文件 - " + relativeFilePath;
             }
-            return Files.readString(path);
+            String content = Files.readString(path);
+            // 空文件会返回空白字符串，langchain4j 在构造 ToolExecutionResultMessage 时
+            // 校验 text 不能为 null/blank 会直接抛异常，这里兜底返回占位文案
+            if (StrUtil.isBlank(content)) {
+                return "（文件内容为空）: " + relativeFilePath;
+            }
+            return content;
         } catch (IOException e) {
             String errorMessage = "读取文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
             log.error(errorMessage, e);

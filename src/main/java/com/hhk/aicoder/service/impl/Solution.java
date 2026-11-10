@@ -1203,6 +1203,55 @@ class Solution {
         grid[x][y] = temp;
              return false;
     }
+    //每日温度
+    public int[] dailyTemperatures(int[] temperatures) {
+        int n = temperatures.length;
+        int[] res = new int[n];
+        Deque<Integer> stack = new ArrayDeque<>();
+
+        for (int i = 0; i < n; i++) {
+            // 当前温度 > 栈顶下标对应的温度，说明找到了栈顶那天的更高温度
+            while (!stack.isEmpty() && temperatures[i] > temperatures[stack.peek()]) {
+                int idx = stack.pop();
+                res[idx] = i - idx;
+            }
+            stack.push(i);
+        }
+        // 栈剩下的元素没有更大温度，res默认就是0不用处理
+        return res;
+    }
+
+    //最大正方形
+    public int maximalSquare(char[][] matrix) {
+        if (matrix == null || matrix.length == 0 || matrix[0].length == 0) return 0;
+        int m = matrix.length, n = matrix[0].length;
+        int[] dp = new int[n];
+        int maxSide = 0;
+        int pre = 0;
+        for (int i = 0; i < m; i++) {
+            pre = 0;
+            for (int j = 0; j < n; j++) {
+                int temp = dp[j];
+                if (matrix[i][j] == '1') {
+                    if (j == 0) {
+                        dp[j] = 1;
+                    } else {
+                        dp[j] = Math.min(Math.min(dp[j], dp[j - 1]), pre) + 1;
+                    }
+                    maxSide = Math.max(maxSide, dp[j]);
+                } else {
+                    dp[j] = 0;
+                }
+                pre = temp;
+            }
+        }
+        return maxSide * maxSide;
+    }
+
+    //在排序数组中查找元素的第一个位置和最后一个位置
+    public int[] searchRange(int[] nums, int target) {
+        return null;
+    }
 
 }
 
